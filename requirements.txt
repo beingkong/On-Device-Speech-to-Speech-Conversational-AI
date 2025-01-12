@@ -1,0 +1,6 @@
+phonemizer
+torch
+transformers
+scipy
+munch
+sounddevice

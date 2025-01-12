@@ -4,3 +4,10 @@ transformers
 scipy
 munch
 sounddevice
+fastapi
+uvicorn
+python-multipart
+soundfile
+pydantic
+requests
+aiohttp

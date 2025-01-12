@@ -13,6 +13,7 @@ class VoiceGenerator:
         self.voice_name = None
         self.models_dir = models_dir
         self.voices_dir = voices_dir
+        self._initialized = False
         
     def initialize(self, model_path, voice_name):
         """Initialize the model and voice pack."""
@@ -28,6 +29,7 @@ class VoiceGenerator:
             raise FileNotFoundError(f"Voice pack not found at {voice_path}. Please place voice files in the 'data/voices' directory.")
             
         self.voicepack = torch.load(voice_path, weights_only=True).to(self.device)
+        self._initialized = True
         return f'Loaded voice: {voice_name}'
         
     def list_available_voices(self):
@@ -36,9 +38,13 @@ class VoiceGenerator:
             return []
         return [f.stem for f in self.voices_dir.glob('*.pt')]
 
+    def is_initialized(self):
+        """Check if the generator is properly initialized."""
+        return self._initialized and self.model is not None and self.voicepack is not None
+
     def generate(self, text, lang=None, speed=1.0, pause_duration=4000, short_text_limit=200):
         """Generate speech from text - handles both short and long-form text."""
-        if self.model is None or self.voicepack is None:
+        if not self.is_initialized():
             raise RuntimeError("Model not initialized. Call initialize() first.")
             
         if lang is None:

@@ -1,8 +1,2 @@
 # Auto detect text files and perform LF normalization
 * text=auto
-
-*.pth filter=lfs diff=lfs merge=lfs -text
-*.pt filter=lfs diff=lfs merge=lfs -text
-*.onnx filter=lfs diff=lfs merge=lfs -text
-data/models/* filter=lfs diff=lfs merge=lfs -text
-data/voices/* filter=lfs diff=lfs merge=lfs -text

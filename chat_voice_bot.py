@@ -2,6 +2,9 @@ import os
 os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
 os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from pathlib import Path
 import traceback
 import requests
@@ -19,13 +22,13 @@ VOICES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Constants
 _DEFAULT_MODEL_PATH = 'kokoro-v0_19-half.pth'
-_DEFAULT_VOICE_NAME = 'af_sky_adam'
+_DEFAULT_VOICE_NAME = 'af_nicole'
 _DEFAULT_SPEED = 1.0
 
 # LM Studio API settings
-LM_STUDIO_URL = "http://localhost:1234/v1"
-DEFAULT_SYSTEM_PROMPT = """You are a helpful and friendly AI assistant. You provide clear, concise, and accurate responses."""
-LLM_MODEL = "llama-3.2-1b-instruct"
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
+DEFAULT_SYSTEM_PROMPT = os.getenv("DEFAULT_SYSTEM_PROMPT")
+LLM_MODEL = os.getenv("LLM_MODEL")
 
 def get_ai_response(messages):
     """Get response from LM Studio API"""

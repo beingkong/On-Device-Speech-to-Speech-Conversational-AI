@@ -10,15 +10,20 @@ import traceback
 import requests
 import json
 from src.utils import play_audio, VoiceGenerator
+import re
+import soundfile as sf
+from datetime import datetime
 
 # Define base paths
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / 'data' / 'models'
 VOICES_DIR = BASE_DIR / 'data' / 'voices'
+OUTPUT_DIR = BASE_DIR / 'output'
 
 # Ensure directories exist
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Constants
 _DEFAULT_MODEL_PATH = 'kokoro-v0_19-half.pth'
@@ -29,6 +34,14 @@ _DEFAULT_SPEED = 1.0
 LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
 DEFAULT_SYSTEM_PROMPT = os.getenv("DEFAULT_SYSTEM_PROMPT")
 LLM_MODEL = os.getenv("LLM_MODEL")
+MAX_TOKENS = int(os.getenv("MAX_TOKENS"))
+# Function to filter AI response
+def filter_response(response):
+    # Remove markdown
+    response = re.sub(r'\*\*|__|~~|`', '', response)  # Remove markdown symbols
+    # Remove emojis
+    response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)  # Remove emojis
+    return response
 
 def get_ai_response(messages):
     """Get response from LM Studio API"""
@@ -39,7 +52,7 @@ def get_ai_response(messages):
                 "messages": messages,
                 "model": LLM_MODEL,
                 "temperature": 0.7,
-                "max_tokens": 500,
+                "max_tokens": MAX_TOKENS,
                 "stream": False
             },
             headers={"Content-Type": "application/json"}
@@ -138,6 +151,9 @@ def main():
                     print("Failed to get response from AI. Please try again.")
                     continue
                 
+                # Filter AI response
+                ai_response = filter_response(ai_response)
+
                 # Add AI response to history
                 messages.append({"role": "assistant", "content": ai_response})
                 print(f"\nAI: {ai_response}")
@@ -145,6 +161,14 @@ def main():
                 # Generate and play audio
                 print("\nGenerating speech...")
                 audio, _ = generator.generate(ai_response, speed=speed)
+                
+                # Save audio file with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = OUTPUT_DIR / f"output_{timestamp}.wav"
+                sf.write(str(output_path), audio, 24000)
+                print(f"Audio saved to: {output_path}")
+                
+                # Play the audio
                 play_audio(audio)
                 
             except KeyboardInterrupt:

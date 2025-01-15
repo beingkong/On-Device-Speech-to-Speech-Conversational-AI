@@ -21,6 +21,8 @@ from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from pyannote.audio import Pipeline
 from torch.nn.functional import pad
 import time
+import sounddevice as sd
+from queue import Queue
 
 # Define base paths
 BASE_DIR = Path(__file__).parent
@@ -244,6 +246,187 @@ def get_ai_response(messages):
         print(f"Error communicating with LM Studio: {str(e)}")
         return None
 
+def play_audio_with_interrupt(audio_data, sample_rate=24000):
+    """Play audio while monitoring for speech interruption"""
+    # Create queues for communication between callbacks
+    interrupt_queue = Queue()
+    speech_buffer = Queue()
+    
+    # Rolling buffer for capturing initial speech
+    buffer_size = int(RATE * 0.5)  # 0.5 second buffer
+    rolling_buffer = np.zeros(buffer_size)
+    buffer_position = 0
+    
+    def input_callback(indata, frames, time, status):
+        """Callback for monitoring input audio"""
+        nonlocal buffer_position
+        
+        if status:
+            print(f"Input status: {status}")
+            return
+            
+        # Update rolling buffer
+        audio_chunk = indata[:, 0]
+        chunk_size = len(audio_chunk)
+        
+        # Roll the buffer and add new data
+        rolling_buffer[:-chunk_size] = rolling_buffer[chunk_size:]
+        rolling_buffer[-chunk_size:] = audio_chunk
+        
+        # Check audio level for potential speech
+        audio_level = np.abs(audio_chunk).mean()
+        if audio_level > 0.01:  # Adjust threshold as needed
+            # Put the entire rolling buffer into the speech queue
+            speech_buffer.put(rolling_buffer.copy())
+            interrupt_queue.put(True)
+    
+    def output_callback(outdata, frames, time, status):
+        """Callback for output audio"""
+        if status:
+            print(f"Output status: {status}")
+            return
+            
+        # Check if we should interrupt
+        if not interrupt_queue.empty():
+            raise sd.CallbackStop()
+            
+        # Calculate remaining frames
+        remaining = len(audio_data) - output_callback.position
+        if remaining == 0:
+            raise sd.CallbackStop()
+        valid_frames = min(remaining, frames)
+        outdata[:valid_frames, 0] = audio_data[output_callback.position:output_callback.position + valid_frames]
+        if valid_frames < frames:
+            outdata[valid_frames:] = 0
+        output_callback.position += valid_frames
+    
+    # Initialize position counter
+    output_callback.position = 0
+    
+    try:
+        # Open both input and output streams
+        with sd.InputStream(channels=1, callback=input_callback, samplerate=RATE):
+            with sd.OutputStream(channels=1, callback=output_callback, samplerate=sample_rate):
+                while output_callback.position < len(audio_data):
+                    sd.sleep(100)
+                    if not interrupt_queue.empty():
+                        # Get the initial speech that triggered interruption
+                        initial_speech = speech_buffer.get() if not speech_buffer.empty() else None
+                        return True, initial_speech  # Return both interruption flag and initial speech
+        return False, None
+    except sd.CallbackStop:
+        # Get the initial speech that triggered interruption
+        initial_speech = speech_buffer.get() if not speech_buffer.empty() else None
+        return True, initial_speech
+    except Exception as e:
+        print(f"Error during playback: {str(e)}")
+        return False, None
+
+def check_for_speech(timeout=0.1):
+    """Check if speech is detected in a non-blocking way"""
+    p = pyaudio.PyAudio()
+    
+    frames = []
+    is_speech = False
+    
+    try:
+        stream = p.open(format=FORMAT,
+                       channels=CHANNELS,
+                       rate=RATE,
+                       input=True,
+                       frames_per_buffer=CHUNK)
+        
+        # Only check for a short duration
+        for _ in range(int(RATE * timeout / CHUNK)):
+            data = stream.read(CHUNK, exception_on_overflow=False)
+            audio_chunk = np.frombuffer(data, dtype=np.float32)
+            frames.append(audio_chunk)
+            
+            # Check audio level
+            audio_level = np.abs(audio_chunk).mean()
+            if audio_level > 0.02:  # Slightly higher threshold
+                is_speech = True
+                break
+        
+    finally:
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+    
+    if is_speech and frames:
+        return True, np.concatenate(frames)
+    return False, None
+
+def process_input(user_input, messages, generator, speed):
+    """Process user input and generate response"""
+    # Add user message to history
+    messages.append({"role": "user", "content": user_input})
+    
+    # Get AI response with interruption check
+    print("\nThinking...")
+    ai_response = None
+    retries = 0
+    max_retries = 3
+    
+    while ai_response is None and retries < max_retries:
+        # Check for speech while waiting for LLM
+        speech_detected, audio_data = check_for_speech()
+        if speech_detected:
+            print("\nInterrupted during processing!")
+            return True, audio_data
+            
+        ai_response = get_ai_response(messages)
+        if ai_response is None:
+            print("Failed to get response from AI. Retrying...")
+            retries += 1
+            time.sleep(0.5)  # Longer delay between retries
+    
+    if ai_response is None:
+        print("Failed to get AI response after multiple attempts.")
+        return False, None
+    
+    # Filter AI response
+    ai_response = filter_response(ai_response)
+
+    # Add AI response to history
+    messages.append({"role": "assistant", "content": ai_response})
+    print(f"\nAI: {ai_response}")
+    
+    # Generate speech with interruption check
+    print("\nGenerating speech...")
+    audio = None
+    retries = 0
+    
+    while audio is None and retries < max_retries:
+        # Check for speech while generating
+        speech_detected, audio_data = check_for_speech()
+        if speech_detected:
+            print("\nInterrupted during generation!")
+            return True, audio_data
+            
+        try:
+            audio, _ = generator.generate(ai_response, speed=speed)
+        except Exception as e:
+            print(f"Speech generation failed: {str(e)}")
+            retries += 1
+            time.sleep(0.5)
+    
+    if audio is None:
+        print("Failed to generate speech after multiple attempts.")
+        return False, None
+    
+    # Save audio file with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = OUTPUT_DIR / f"output_{timestamp}.wav"
+    sf.write(str(output_path), audio, 24000)
+    
+    # Play audio with interruption monitoring
+    was_interrupted, initial_speech = play_audio_with_interrupt(audio)
+    if was_interrupted:
+        print("\nInterrupted during playback!")
+        return True, initial_speech
+    return False, None
+
 def main():
     try:
         # Initialize the voice generator
@@ -279,6 +462,7 @@ def main():
         print("\n=== Voice Chat Bot Ready ===")
         print("The bot is now listening for speech.")
         print("Just start speaking, and I'll respond automatically!")
+        print("You can interrupt me anytime by starting to speak.")
         print("\nOther options:")
         print("  - Type text messages and press Enter")
         print("  - Use 'v' for manual voice recording")
@@ -310,8 +494,17 @@ def main():
                         # Handle other commands
                         if handle_commands(user_input, generator, speed):
                             continue
-                        # Process text input
-                        process_input(user_input, messages, generator, speed)
+                        # Process text input with interruption handling
+                        was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
+                        if was_interrupted and speech_data is not None:
+                            # Process the speech that caused interruption
+                            speech_segments = detect_speech_segments(vad_pipeline, speech_data)
+                            if speech_segments is not None:
+                                print("\nTranscribing interrupted speech...")
+                                user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
+                                if user_input.strip():
+                                    print(f"You (voice): {user_input}")
+                                    process_input(user_input, messages, generator, speed)
                         continue
                 
                 # Continuously monitor audio
@@ -325,8 +518,17 @@ def main():
                         user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
                         if user_input.strip():
                             print(f"You (voice): {user_input}")
-                            # Process the transcribed input
-                            process_input(user_input, messages, generator, speed)
+                            # Process the transcribed input with interruption handling
+                            was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
+                            if was_interrupted and speech_data is not None:
+                                # Process the speech that caused interruption
+                                speech_segments = detect_speech_segments(vad_pipeline, speech_data)
+                                if speech_segments is not None:
+                                    print("\nTranscribing interrupted speech...")
+                                    user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
+                                    if user_input.strip():
+                                        print(f"You (voice): {user_input}")
+                                        process_input(user_input, messages, generator, speed)
                     else:
                         print("No clear speech detected, please try again.")
                 
@@ -376,37 +578,6 @@ def handle_commands(user_input, generator, speed):
         return True
     
     return False
-
-def process_input(user_input, messages, generator, speed):
-    """Process user input and generate response"""
-    # Add user message to history
-    messages.append({"role": "user", "content": user_input})
-    
-    # Get AI response
-    print("\nThinking...")
-    ai_response = get_ai_response(messages)
-    if ai_response is None:
-        print("Failed to get response from AI. Please try again.")
-        return
-    
-    # Filter AI response
-    ai_response = filter_response(ai_response)
-
-    # Add AI response to history
-    messages.append({"role": "assistant", "content": ai_response})
-    print(f"\nAI: {ai_response}")
-    
-    # Generate and play audio
-    print("\nGenerating speech...")
-    audio, _ = generator.generate(ai_response, speed=speed)
-    
-    # Save audio file with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = OUTPUT_DIR / f"output_{timestamp}.wav"
-    sf.write(str(output_path), audio, 24000)
-    
-    # Play the audio
-    play_audio(audio)
 
 if __name__ == "__main__":
     main() 

@@ -13,6 +13,7 @@ from src.utils import play_audio, VoiceGenerator
 import re
 import soundfile as sf
 from datetime import datetime
+import torch
 
 # Define base paths
 BASE_DIR = Path(__file__).parent
@@ -26,9 +27,9 @@ VOICES_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Constants
-_DEFAULT_MODEL_PATH = 'kokoro-v0_19-half.pth'
-_DEFAULT_VOICE_NAME = 'af_nicole'
-_DEFAULT_SPEED = 1.0
+_DEFAULT_MODEL_PATH = os.getenv("TTS_MODEL")
+_DEFAULT_VOICE_NAME = os.getenv("VOICE_NAME")
+_DEFAULT_SPEED = float(os.getenv("SPEED"))
 
 # LM Studio API settings
 LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
@@ -92,6 +93,7 @@ def main():
         print("  speed=X : Change speech speed (e.g., speed=1.2)")
         print("  voice=X : Change voice (e.g., voice=af_sky)")
         print("  voices  : List available voices")
+        print("  mix=voice1,voice2[:weight1,weight2] : Mix two voices (e.g., mix=af_sky,am_adam or mix=af_sky,am_adam:0.7,0.3)")
         print("-" * 50)
         
         # Initialize chat history
@@ -135,6 +137,51 @@ def main():
                             print("Voice not found. Use 'voices' to list available voices.")
                     except Exception as e:
                         print(f"Error changing voice: {str(e)}")
+                    continue
+                
+                if user_input.startswith('mix='):
+                    try:
+                        # Parse the mix command
+                        mix_input = user_input.split('=')[1]
+                        voices_weights = mix_input.split(':')
+                        voices = [v.strip() for v in voices_weights[0].split(',')]
+                        
+                        # Check if weights are provided
+                        if len(voices_weights) > 1:
+                            weights = [float(w.strip()) for w in voices_weights[1].split(',')]
+                        else:
+                            weights = [0.5, 0.5]  # Default to equal weights
+                            
+                        if len(voices) != 2 or len(weights) != 2:
+                            print("Mix command requires exactly two voices. Format: mix=voice1,voice2[:weight1,weight2]")
+                            continue
+                            
+                        # Verify voices exist
+                        available_voices = generator.list_available_voices()
+                        if not all(voice in available_voices for voice in voices):
+                            print("One or more voices not found. Use 'voices' to list available voices.")
+                            continue
+                            
+                        # Load and mix voices
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        # Use 'a' prefix for mixed voices to maintain naming convention
+                        output_name = f"af_mixed_voice_{timestamp}"
+                        
+                        voice_tensors = []
+                        for voice_name in voices:
+                            voice_path = VOICES_DIR / f"{voice_name}.pt"
+                            voice = torch.load(voice_path, weights_only=True)
+                            voice_tensors.append(voice)
+                        
+                        # Mix voices using quick_mix_voice
+                        from src.utils.voice import quick_mix_voice
+                        mixed = quick_mix_voice(output_name, VOICES_DIR, *voice_tensors, weights=weights)
+                        
+                        # Initialize with mixed voice
+                        result = generator.initialize(_DEFAULT_MODEL_PATH, output_name)
+                        print(f"Mixed voices: {voices[0]} ({weights[0]:.1f}) and {voices[1]} ({weights[1]:.1f})")
+                    except Exception as e:
+                        print(f"Error mixing voices: {str(e)}")
                     continue
                 
                 # Skip empty input

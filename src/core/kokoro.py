@@ -1,6 +1,13 @@
 import phonemizer
+import os 
 import re
 import torch
+from dotenv import load_dotenv
+load_dotenv()
+
+"""Initialize eSpeak environment variables. Must be called before any other imports."""
+os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
 def split_num(num):
     num = num.group()

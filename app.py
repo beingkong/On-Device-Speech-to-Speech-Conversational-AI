@@ -174,7 +174,10 @@ async def generate_speech(request: TextRequest):
             return StreamingResponse(
                 buffer,
                 media_type="audio/wav",
-                headers={"Content-Disposition": "attachment; filename=generated_speech.wav"}
+                headers={
+                    "Content-Disposition": "attachment; filename=generated_speech.wav",
+                    "X-Phonemes": phonemes  # Include phonemes in response headers if needed
+                }
             )
         except Exception as e:
             logger.error(f"Error in generation process: {str(e)}")
@@ -184,9 +187,9 @@ async def generate_speech(request: TextRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error generating speech: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 @app.post("/mix-voices")
 async def mix_voices(request: VoiceMixRequest):

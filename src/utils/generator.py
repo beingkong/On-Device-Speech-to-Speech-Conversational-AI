@@ -42,7 +42,7 @@ class VoiceGenerator:
         """Check if the generator is properly initialized."""
         return self._initialized and self.model is not None and self.voicepack is not None
 
-    def generate(self, text, lang=None, speed=1.0, pause_duration=4000, short_text_limit=200):
+    def generate(self, text, lang=None, speed=1.0, pause_duration=4000, short_text_limit=200, return_chunks=False):
         """Generate speech from text - handles both short and long-form text."""
         if not self.is_initialized():
             raise RuntimeError("Model not initialized. Call initialize() first.")
@@ -53,12 +53,12 @@ class VoiceGenerator:
         # For short text, generate directly
         if len(text.strip()) < short_text_limit:
             audio, phonemes = generate(self.model, text, self.voicepack, lang=lang, speed=speed)
-            return audio, phonemes
+            return (audio, phonemes) if not return_chunks else ([audio], phonemes)
 
         # For long text, split and process each sentence
         sentences = split_into_sentences(text)
         if not sentences:
-            return None, []
+            return (None, []) if not return_chunks else ([], [])
 
         audio_segments = []
         phonemes_list = []
@@ -68,7 +68,7 @@ class VoiceGenerator:
                 continue
             
             # Add pause between sentences
-            if audio_segments:
+            if audio_segments and not return_chunks:
                 audio_segments.append(np.zeros(pause_duration))
             
             # Generate and process audio for sentence
@@ -76,4 +76,6 @@ class VoiceGenerator:
             audio_segments.append(audio)
             phonemes_list.extend(phonemes)
 
+        if return_chunks:
+            return audio_segments, phonemes_list
         return np.concatenate(audio_segments), phonemes_list 

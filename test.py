@@ -88,7 +88,10 @@ def main():
                 # Generate and play audio
                 print("Generating audio...")
                 audio, _ = generator.generate(text, speed=speed)
-                play_audio(audio)
+                if audio is not None:
+                    play_audio(audio)
+                else:
+                    print("Failed to generate audio")
                 
             except KeyboardInterrupt:
                 print("\nInterrupted by user. Type 'quit' to exit.")

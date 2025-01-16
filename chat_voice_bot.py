@@ -15,6 +15,8 @@ from torch.nn.functional import pad
 import time
 import sounddevice as sd
 from queue import Queue
+load_dotenv()
+
 
 # --- Constants ---
 # eSpeak settings
@@ -62,7 +64,6 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS"))
 # --- Setup ---
 os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = ESPEAK_LIBRARY_PATH
 os.environ["PHONEMIZER_ESPEAK_PATH"] = ESPEAK_PATH
-load_dotenv()
 
 # Ensure directories exist
 MODELS_DIR.mkdir(parents=True, exist_ok=True)

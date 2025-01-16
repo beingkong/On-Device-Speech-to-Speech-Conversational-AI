@@ -1,21 +1,13 @@
 import os
-os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
-os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
-
 from dotenv import load_dotenv
-load_dotenv()
-
 from pathlib import Path
 import traceback
 import requests
-import json
-from src.utils import play_audio, VoiceGenerator
 import re
 import soundfile as sf
 from datetime import datetime
 import torch
 import pyaudio
-import wave
 import numpy as np
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from pyannote.audio import Pipeline
@@ -24,12 +16,53 @@ import time
 import sounddevice as sd
 from queue import Queue
 
-# Define base paths
+# --- Constants ---
+# eSpeak settings
+ESPEAK_LIBRARY_PATH = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+ESPEAK_PATH = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
+
+# Base paths
 BASE_DIR = Path(__file__).parent
 MODELS_DIR = BASE_DIR / 'data' / 'models'
 VOICES_DIR = BASE_DIR / 'data' / 'voices'
 OUTPUT_DIR = BASE_DIR / 'output'
 RECORDINGS_DIR = BASE_DIR / 'recordings'
+
+# Default settings
+_DEFAULT_MODEL_PATH = os.getenv("TTS_MODEL")
+_DEFAULT_VOICE_NAME = os.getenv("VOICE_NAME")
+_DEFAULT_SPEED = float(os.getenv("SPEED"))
+HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
+
+# Audio recording settings
+CHUNK = 1024
+FORMAT = pyaudio.paFloat32
+CHANNELS = 1
+RATE = 16000
+VAD_MIN_DURATION_ON = 0.1
+VAD_MIN_DURATION_OFF = 0.1
+RECORD_DURATION = 5
+SILENCE_THRESHOLD = 0.01
+MAX_SILENCE_DURATION = 1
+SPEECH_CHECK_TIMEOUT = 0.1
+SPEECH_CHECK_THRESHOLD = 0.02
+ROLLING_BUFFER_TIME = 0.5
+LM_STUDIO_TEMPERATURE = 0.7
+LM_STUDIO_STREAM = False
+LM_STUDIO_RETRY_DELAY = 0.5
+MAX_RETRIES = 3
+OUTPUT_SAMPLE_RATE = 24000
+
+# LM Studio API settings
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
+DEFAULT_SYSTEM_PROMPT = os.getenv("DEFAULT_SYSTEM_PROMPT")
+LLM_MODEL = os.getenv("LLM_MODEL")
+MAX_TOKENS = int(os.getenv("MAX_TOKENS"))
+
+# --- Setup ---
+os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = ESPEAK_LIBRARY_PATH
+os.environ["PHONEMIZER_ESPEAK_PATH"] = ESPEAK_PATH
+load_dotenv()
 
 # Ensure directories exist
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -37,17 +70,6 @@ VOICES_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Constants
-_DEFAULT_MODEL_PATH = os.getenv("TTS_MODEL")
-_DEFAULT_VOICE_NAME = os.getenv("VOICE_NAME")
-_DEFAULT_SPEED = float(os.getenv("SPEED"))
-HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN")  # Add this to your .env file
-
-# Audio recording settings
-CHUNK = 1024
-FORMAT = pyaudio.paFloat32
-CHANNELS = 1
-RATE = 16000  # Whisper expects 16kHz
 
 def init_vad_pipeline():
     """Initialize the Voice Activity Detection pipeline"""
@@ -66,9 +88,9 @@ def init_vad_pipeline():
     # Configure VAD parameters
     HYPER_PARAMETERS = {
         # remove speech regions shorter than that many seconds
-        "min_duration_on": 0.1,
+        "min_duration_on": VAD_MIN_DURATION_ON,
         # fill non-speech regions shorter than that many seconds
-        "min_duration_off": 0.1
+        "min_duration_off": VAD_MIN_DURATION_OFF
     }
     pipeline.instantiate(HYPER_PARAMETERS)
     
@@ -110,7 +132,7 @@ def detect_speech_segments(pipeline, audio_data, sample_rate=RATE):
         return torch.cat(speech_segments)
     return None
 
-def record_audio(duration=5):
+def record_audio(duration=RECORD_DURATION):
     """Record audio for specified duration"""
     p = pyaudio.PyAudio()
     
@@ -163,10 +185,9 @@ def record_continuous_audio():
     print("\nListening... (Press Ctrl+C to stop)")
     frames = []
     buffer_frames = []  # Rolling buffer for VAD
-    buffer_size = int(RATE * 0.5 / CHUNK)  # 0.5 second buffer
-    silence_threshold = 0.01
+    buffer_size = int(RATE * ROLLING_BUFFER_TIME / CHUNK)  # 0.5 second buffer
     silence_frames = 0
-    max_silence_frames = int(RATE / CHUNK * 1)  # 1 second of silence
+    max_silence_frames = int(RATE / CHUNK * MAX_SILENCE_DURATION)  # 1 second of silence
     recording = False
     
     try:
@@ -182,7 +203,7 @@ def record_continuous_audio():
             # Check audio level using the buffer
             audio_level = np.abs(np.concatenate(buffer_frames)).mean()
             
-            if audio_level > silence_threshold:
+            if audio_level > SILENCE_THRESHOLD:
                 if not recording:
                     print("\nPotential speech detected...")
                     recording = True
@@ -213,11 +234,7 @@ def record_continuous_audio():
         return np.concatenate(frames)
     return None
 
-# LM Studio API settings
-LM_STUDIO_URL = os.getenv("LM_STUDIO_URL")
-DEFAULT_SYSTEM_PROMPT = os.getenv("DEFAULT_SYSTEM_PROMPT")
-LLM_MODEL = os.getenv("LLM_MODEL")
-MAX_TOKENS = int(os.getenv("MAX_TOKENS"))
+
 # Function to filter AI response
 def filter_response(response):
     # Remove markdown
@@ -234,9 +251,9 @@ def get_ai_response(messages):
             json={
                 "messages": messages,
                 "model": LLM_MODEL,
-                "temperature": 0.7,
+                "temperature": LM_STUDIO_TEMPERATURE,
                 "max_tokens": MAX_TOKENS,
-                "stream": False
+                "stream": LM_STUDIO_STREAM
             },
             headers={"Content-Type": "application/json"}
         )
@@ -246,14 +263,14 @@ def get_ai_response(messages):
         print(f"Error communicating with LM Studio: {str(e)}")
         return None
 
-def play_audio_with_interrupt(audio_data, sample_rate=24000):
+def play_audio_with_interrupt(audio_data, sample_rate=OUTPUT_SAMPLE_RATE):
     """Play audio while monitoring for speech interruption"""
     # Create queues for communication between callbacks
     interrupt_queue = Queue()
     speech_buffer = Queue()
     
     # Rolling buffer for capturing initial speech
-    buffer_size = int(RATE * 0.5)  # 0.5 second buffer
+    buffer_size = int(RATE * ROLLING_BUFFER_TIME)  # 0.5 second buffer
     rolling_buffer = np.zeros(buffer_size)
     buffer_position = 0
     
@@ -275,7 +292,7 @@ def play_audio_with_interrupt(audio_data, sample_rate=24000):
         
         # Check audio level for potential speech
         audio_level = np.abs(audio_chunk).mean()
-        if audio_level > 0.01:  # Adjust threshold as needed
+        if audio_level > SILENCE_THRESHOLD:  # Adjust threshold as needed
             # Put the entire rolling buffer into the speech queue
             speech_buffer.put(rolling_buffer.copy())
             interrupt_queue.put(True)
@@ -322,7 +339,7 @@ def play_audio_with_interrupt(audio_data, sample_rate=24000):
         print(f"Error during playback: {str(e)}")
         return False, None
 
-def check_for_speech(timeout=0.1):
+def check_for_speech(timeout=SPEECH_CHECK_TIMEOUT):
     """Check if speech is detected in a non-blocking way"""
     p = pyaudio.PyAudio()
     
@@ -344,7 +361,7 @@ def check_for_speech(timeout=0.1):
             
             # Check audio level
             audio_level = np.abs(audio_chunk).mean()
-            if audio_level > 0.02:  # Slightly higher threshold
+            if audio_level > SPEECH_CHECK_THRESHOLD:  # Slightly higher threshold
                 is_speech = True
                 break
         
@@ -366,9 +383,8 @@ def process_input(user_input, messages, generator, speed):
     print("\nThinking...")
     ai_response = None
     retries = 0
-    max_retries = 3
     
-    while ai_response is None and retries < max_retries:
+    while ai_response is None and retries < MAX_RETRIES:
         # Check for speech while waiting for LLM
         speech_detected, audio_data = check_for_speech()
         if speech_detected:
@@ -379,7 +395,7 @@ def process_input(user_input, messages, generator, speed):
         if ai_response is None:
             print("Failed to get response from AI. Retrying...")
             retries += 1
-            time.sleep(0.5)  # Longer delay between retries
+            time.sleep(LM_STUDIO_RETRY_DELAY)  # Longer delay between retries
     
     if ai_response is None:
         print("Failed to get AI response after multiple attempts.")
@@ -397,7 +413,7 @@ def process_input(user_input, messages, generator, speed):
     audio = None
     retries = 0
     
-    while audio is None and retries < max_retries:
+    while audio is None and retries < MAX_RETRIES:
         # Check for speech while generating
         speech_detected, audio_data = check_for_speech()
         if speech_detected:
@@ -409,7 +425,7 @@ def process_input(user_input, messages, generator, speed):
         except Exception as e:
             print(f"Speech generation failed: {str(e)}")
             retries += 1
-            time.sleep(0.5)
+            time.sleep(LM_STUDIO_RETRY_DELAY)
     
     if audio is None:
         print("Failed to generate speech after multiple attempts.")
@@ -418,7 +434,7 @@ def process_input(user_input, messages, generator, speed):
     # Save audio file with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = OUTPUT_DIR / f"output_{timestamp}.wav"
-    sf.write(str(output_path), audio, 24000)
+    sf.write(str(output_path), audio, OUTPUT_SAMPLE_RATE)
     
     # Play audio with interruption monitoring
     was_interrupted, initial_speech = play_audio_with_interrupt(audio)
@@ -430,6 +446,7 @@ def process_input(user_input, messages, generator, speed):
 def main():
     try:
         # Initialize the voice generator
+        from src.utils import VoiceGenerator
         generator = VoiceGenerator(MODELS_DIR, VOICES_DIR)
         
         # Initialize Whisper
@@ -580,4 +597,4 @@ def handle_commands(user_input, generator, speed):
     return False
 
 if __name__ == "__main__":
-    main() 
+    main()

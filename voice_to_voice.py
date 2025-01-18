@@ -9,7 +9,8 @@ from src.utils import (
     VoiceGenerator, split_into_sentences, filter_response,
     get_ai_response, play_audio_with_interrupt, handle_commands,
     init_vad_pipeline, detect_speech_segments, record_audio,
-    record_continuous_audio, check_for_speech, transcribe_audio
+    record_continuous_audio, check_for_speech, transcribe_audio,
+    generate_and_play_sentences
 )
 
 # Setup environment
@@ -56,34 +57,25 @@ def process_input(user_input, messages, generator, speed):
     messages.append({"role": "assistant", "content": ai_response})
     print(f"\nAI: {ai_response}")
     
-    # Generate speech with interruption check
-    print("\nGenerating speech...")
-    audio = None
-    retries = 0
-    
-    while audio is None and retries < settings.MAX_RETRIES:
-        # Check for speech while generating
-        speech_detected, audio_data = check_for_speech()
-        if speech_detected:
-            print("\nInterrupted during generation!")
-            return True, audio_data
-            
-        try:
-            audio, _ = generator.generate(ai_response, speed=speed)
-        except Exception as e:
-            print(f"Speech generation failed: {str(e)}")
-            retries += 1
-            time.sleep(settings.LM_STUDIO_RETRY_DELAY)
-    
-    if audio is None:
-        print("Failed to generate speech after multiple attempts.")
+    # Generate and play audio sentence by sentence
+    print("\nGenerating and playing speech...")
+    sentences = split_into_sentences(ai_response)
+    if not sentences:
         return False, None
     
-    # Play audio with interruption monitoring
-    was_interrupted, initial_speech = play_audio_with_interrupt(audio)
+    # Generate and play each sentence with interruption checking
+    was_interrupted, interrupt_audio, _ = generate_and_play_sentences(
+        sentences=sentences,
+        generator=generator,
+        speed=speed,
+        play_function=play_audio_with_interrupt,
+        check_interrupt=check_for_speech,
+        output_dir=settings.OUTPUT_DIR
+    )
+    
     if was_interrupted:
         print("\nInterrupted during playback!")
-        return True, initial_speech
+        return True, interrupt_audio
     return False, None
 
 def main():

@@ -50,32 +50,61 @@ class VoiceGenerator:
         if lang is None:
             lang = self.voice_name[0]
 
-        # For short text, generate directly
-        if len(text.strip()) < short_text_limit:
-            audio, phonemes = generate(self.model, text, self.voicepack, lang=lang, speed=speed)
-            return (audio, phonemes) if not return_chunks else ([audio], phonemes)
-
-        # For long text, split and process each sentence
-        sentences = split_into_sentences(text)
-        if not sentences:
+        # Clean and normalize the text
+        text = text.strip()
+        if not text:
             return (None, []) if not return_chunks else ([], [])
 
-        audio_segments = []
-        phonemes_list = []
-        
-        for sentence in sentences:
-            if not sentence.strip():
-                continue
-            
-            # Add pause between sentences
-            if audio_segments and not return_chunks:
-                audio_segments.append(np.zeros(pause_duration))
-            
-            # Generate and process audio for sentence
-            audio, phonemes = generate(self.model, sentence, self.voicepack, lang=lang, speed=speed)
-            audio_segments.append(audio)
-            phonemes_list.extend(phonemes)
+        try:
+            # For short text, generate directly
+            if len(text) < short_text_limit:
+                try:
+                    audio, phonemes = generate(self.model, text, self.voicepack, lang=lang, speed=speed)
+                    if audio is None or len(audio) == 0:
+                        raise ValueError(f"Failed to generate audio for text: {text}")
+                    return (audio, phonemes) if not return_chunks else ([audio], phonemes)
+                except Exception as e:
+                    raise ValueError(f"Error generating audio for text: {text}. Error: {str(e)}")
 
-        if return_chunks:
-            return audio_segments, phonemes_list
-        return np.concatenate(audio_segments), phonemes_list 
+            # For long text, split and process each sentence
+            sentences = split_into_sentences(text)
+            if not sentences:
+                return (None, []) if not return_chunks else ([], [])
+
+            audio_segments = []
+            phonemes_list = []
+            failed_sentences = []
+            
+            for i, sentence in enumerate(sentences):
+                if not sentence.strip():
+                    continue
+                
+                try:
+                    # Add pause between sentences
+                    if audio_segments and not return_chunks:
+                        audio_segments.append(np.zeros(pause_duration))
+                    
+                    # Generate and process audio for sentence
+                    audio, phonemes = generate(self.model, sentence, self.voicepack, lang=lang, speed=speed)
+                    if audio is not None and len(audio) > 0:
+                        audio_segments.append(audio)
+                        phonemes_list.extend(phonemes)
+                    else:
+                        failed_sentences.append((i, sentence, "Generated audio is empty"))
+                except Exception as e:
+                    failed_sentences.append((i, sentence, str(e)))
+                    continue
+            
+            if failed_sentences:
+                error_msg = "\n".join([f"Sentence {i+1}: '{s}' - {e}" for i, s, e in failed_sentences])
+                raise ValueError(f"Failed to generate audio for some sentences:\n{error_msg}")
+            
+            if not audio_segments:
+                return (None, []) if not return_chunks else ([], [])
+
+            if return_chunks:
+                return audio_segments, phonemes_list
+            return np.concatenate(audio_segments), phonemes_list
+            
+        except Exception as e:
+            raise ValueError(f"Error in audio generation: {str(e)}") 

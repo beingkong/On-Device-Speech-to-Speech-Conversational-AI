@@ -6,6 +6,7 @@ data/
 output/
 test/
 examples/
+generated_audio/
 # C extensions
 *.so
 

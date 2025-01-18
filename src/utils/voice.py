@@ -110,8 +110,81 @@ def quick_mix_voice(output_name, voices_dir, *voices, weights=None):
     return mixed
 
 def split_into_sentences(text):
-    """Split text into sentences using punctuation rules."""
+    """Split text into sentences using more robust rules."""
     import re
-    # Remove square brackets content and split on sentence endings
-    text = re.sub(r'\[.*?\]', '', text)
-    return [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()] 
+    
+    # Clean the text first
+    text = text.strip()
+    if not text:
+        return []
+        
+    # Handle common abbreviations to prevent false splits
+    abbreviations = {
+        'Mr.': 'Mr',
+        'Mrs.': 'Mrs',
+        'Dr.': 'Dr',
+        'Ms.': 'Ms',
+        'Prof.': 'Prof',
+        'Sr.': 'Sr',
+        'Jr.': 'Jr',
+        'vs.': 'vs',
+        'etc.': 'etc',
+        'i.e.': 'ie',
+        'e.g.': 'eg',
+        'a.m.': 'am',
+        'p.m.': 'pm'
+    }
+    
+    # Replace abbreviations temporarily
+    for abbr, repl in abbreviations.items():
+        text = text.replace(abbr, repl)
+    
+    # Split on sentence endings while preserving the punctuation
+    # This handles cases like "Hello! How are you? I'm good."
+    sentences = []
+    current = []
+    
+    # Split into words while preserving punctuation
+    words = re.findall(r'\S+|\s+', text)
+    
+    for word in words:
+        current.append(word)
+        
+        # Check if this word ends with sentence-ending punctuation
+        if re.search(r'[.!?]+$', word):
+            # Check if this is really a sentence end (not part of an abbreviation)
+            if not re.match(r'^[A-Z][a-z]{1,2}$', word[:-1]):  # Skip single letter abbreviations
+                sentence = ''.join(current).strip()
+                if sentence:
+                    sentences.append(sentence)
+                current = []
+                continue
+    
+    # Add any remaining text as a sentence
+    if current:
+        sentence = ''.join(current).strip()
+        if sentence:
+            sentences.append(sentence)
+    
+    # Restore abbreviations
+    for abbr, repl in abbreviations.items():
+        sentences = [s.replace(repl, abbr) for s in sentences]
+    
+    # Final cleanup
+    sentences = [s.strip() for s in sentences if s.strip()]
+    
+    # Handle edge cases
+    final_sentences = []
+    for s in sentences:
+        # Split very long sentences at commas if they exceed a certain length
+        if len(s) > 200:  # Adjust this threshold as needed
+            parts = s.split(',')
+            parts = [p.strip() for p in parts if p.strip()]
+            if len(parts) > 1:
+                final_sentences.extend(parts)
+            else:
+                final_sentences.append(s)
+        else:
+            final_sentences.append(s)
+    
+    return final_sentences 

@@ -4,12 +4,12 @@ import traceback
 import time
 import torch
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from src.utils.config import settings
 from src.utils import (
     VoiceGenerator, split_into_sentences, filter_response,
-    get_ai_response, generate_and_play_sentences, handle_commands,
+    get_ai_response, play_audio_with_interrupt, handle_commands,
     init_vad_pipeline, detect_speech_segments, record_audio,
-    record_continuous_audio, check_for_speech, play_audio_with_interrupt,
-    transcribe_audio, settings
+    record_continuous_audio, check_for_speech, transcribe_audio
 )
 
 # Setup environment
@@ -56,27 +56,34 @@ def process_input(user_input, messages, generator, speed):
     messages.append({"role": "assistant", "content": ai_response})
     print(f"\nAI: {ai_response}")
     
-    # Split text into sentences for streaming generation
-    sentences = split_into_sentences(ai_response)
-    if not sentences:
+    # Generate speech with interruption check
+    print("\nGenerating speech...")
+    audio = None
+    retries = 0
+    
+    while audio is None and retries < settings.MAX_RETRIES:
+        # Check for speech while generating
+        speech_detected, audio_data = check_for_speech()
+        if speech_detected:
+            print("\nInterrupted during generation!")
+            return True, audio_data
+            
+        try:
+            audio, _ = generator.generate(ai_response, speed=speed)
+        except Exception as e:
+            print(f"Speech generation failed: {str(e)}")
+            retries += 1
+            time.sleep(settings.LM_STUDIO_RETRY_DELAY)
+    
+    if audio is None:
+        print("Failed to generate speech after multiple attempts.")
         return False, None
-        
-    print("\nGenerating and playing speech...")
     
-    # Generate and play each sentence with interruption checking
-    was_interrupted, speech_data, audio_segments = generate_and_play_sentences(
-        sentences=sentences,
-        generator=generator,
-        speed=speed,
-        play_function=play_audio_with_interrupt,
-        check_interrupt=check_for_speech,
-        output_dir=settings.OUTPUT_DIR,
-        sample_rate=settings.OUTPUT_SAMPLE_RATE
-    )
-    
+    # Play audio with interruption monitoring
+    was_interrupted, initial_speech = play_audio_with_interrupt(audio)
     if was_interrupted:
-        return True, speech_data
-    
+        print("\nInterrupted during playback!")
+        return True, initial_speech
     return False, None
 
 def main():
@@ -136,17 +143,35 @@ def main():
                 if msvcrt.kbhit():
                     user_input = input("\nYou (text): ").strip()
                     
-                    # Handle commands
-                    if handle_commands(user_input, generator, speed, settings.TTS_MODEL):
-                        if user_input.lower() == 'quit':
-                            print("Goodbye!")
-                            break
-                        continue
+                    # Check for exit command
+                    if user_input.lower() == 'quit':
+                        print("Goodbye!")
+                        break
                         
                     # Handle manual voice recording
                     if user_input.lower() == 'v':
                         audio_data = record_audio()
+                        if audio_data is not None:
+                            speech_segments = detect_speech_segments(vad_pipeline, audio_data)
+                            if speech_segments is not None:
+                                print("\nTranscribing recorded speech...")
+                                user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
+                                if user_input.strip():
+                                    print(f"You (voice): {user_input}")
+                                    was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
+                                    if was_interrupted and speech_data is not None:
+                                        # Process the speech that caused interruption
+                                        speech_segments = detect_speech_segments(vad_pipeline, speech_data)
+                                        if speech_segments is not None:
+                                            print("\nTranscribing interrupted speech...")
+                                            user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
+                                            if user_input.strip():
+                                                print(f"You (voice): {user_input}")
+                                                process_input(user_input, messages, generator, speed)
                     else:
+                        # Handle other commands
+                        if handle_commands(user_input, generator, speed, settings.TTS_MODEL):
+                            continue
                         # Process text input with interruption handling
                         was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
                         if was_interrupted and speech_data is not None:

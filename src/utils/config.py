@@ -56,7 +56,7 @@ class Settings(BaseSettings):
 
     # Audio settings
     CHUNK: int = Field(default=1024, env="CHUNK")
-    FORMAT: int = Field(default=4, env="FORMAT")  # pyaudio.paFloat32
+    FORMAT: str = Field(default="pyaudio.paFloat32", env="FORMAT")  # pyaudio.paFloat32
     CHANNELS: int = Field(default=1, env="CHANNELS")
     RATE: int = Field(default=16000, env="RATE")
     OUTPUT_SAMPLE_RATE: int = Field(default=24000, env="OUTPUT_SAMPLE_RATE")

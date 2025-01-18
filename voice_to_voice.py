@@ -12,6 +12,9 @@ from src.utils import (
     record_continuous_audio, check_for_speech, transcribe_audio,
     generate_and_play_sentences
 )
+from src.utils.audio_queue import AudioGenerationQueue
+from src.utils.llm import parse_stream_chunk
+import threading
 
 # Setup environment
 settings.setup_directories()
@@ -21,62 +24,136 @@ def process_input(user_input, messages, generator, speed):
     # Add user message to history
     messages.append({"role": "user", "content": user_input})
     
-    # Get AI response with interruption check
+    # Get AI response with interruption check and streaming
     print("\nThinking...")
-    ai_response = None
-    retries = 0
+    ai_response = []
+    current_sentence = []
+    complete_response = []
     
-    while ai_response is None and retries < settings.MAX_RETRIES:
-        # Check for speech while waiting for LLM
-        speech_detected, audio_data = check_for_speech()
-        if speech_detected:
-            print("\nInterrupted during processing!")
-            return True, audio_data
-            
-        ai_response = get_ai_response(
+    try:
+        response_stream = get_ai_response(
             messages=messages,
             llm_model=settings.LLM_MODEL,
             lm_studio_url=settings.LM_STUDIO_URL,
             max_tokens=settings.MAX_TOKENS,
             temperature=settings.LM_STUDIO_TEMPERATURE,
-            stream=settings.LM_STUDIO_STREAM
+            stream=True  # Enable streaming
         )
-        if ai_response is None:
-            print("Failed to get response from AI. Retrying...")
-            retries += 1
-            time.sleep(settings.LM_STUDIO_RETRY_DELAY)
-    
-    if ai_response is None:
-        print("Failed to get AI response after multiple attempts.")
+        
+        if response_stream is None:
+            print("Failed to get AI response stream.")
+            return False, None
+            
+        # Start audio generation queue early
+        audio_queue = AudioGenerationQueue(generator, speed)
+        audio_queue.start()
+        
+        # Start a thread for audio playback
+        def audio_playback_worker():
+            was_interrupted = False
+            interrupt_audio = None
+            
+            try:
+                while True:
+                    # Check for interruption
+                    speech_detected, audio_data = check_for_speech()
+                    if speech_detected:
+                        was_interrupted = True
+                        interrupt_audio = audio_data
+                        break
+                    
+                    # Try to get and play next audio segment
+                    audio_data, _ = audio_queue.get_next_audio()
+                    if audio_data is not None:
+                        was_interrupted, interrupt_data = play_audio_with_interrupt(audio_data)
+                        if was_interrupted:
+                            interrupt_audio = interrupt_data
+                            break
+                    else:
+                        # No audio available yet, small sleep
+                        time.sleep(0.01)
+                        
+                    # Check if we should exit (text generation done and queue empty)
+                    if not audio_queue.is_running and audio_queue.sentence_queue.empty() and audio_queue.audio_queue.empty():
+                        break
+                        
+            except Exception as e:
+                print(f"Error in audio playback: {str(e)}")
+                
+            return was_interrupted, interrupt_audio
+            
+        # Start audio playback thread
+        playback_thread = threading.Thread(target=audio_playback_worker)
+        playback_thread.daemon = True
+        playback_thread.start()
+        
+        # Process streaming response
+        for chunk in response_stream:
+            # Parse the chunk
+            data = parse_stream_chunk(chunk)
+            if not data:
+                continue
+                
+            # Get the text from the chunk
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                
+                # Get content from delta if present
+                if "delta" in choice:
+                    delta = choice["delta"]
+                    if "content" in delta:
+                        content = delta["content"]
+                        if content:
+                            print(content, end='', flush=True)
+                            current_sentence.append(content)
+                            
+                            # Check if this content completes a sentence
+                            text = ''.join(current_sentence)
+                            # Look for sentence endings or line breaks
+                            sentence_end = -1
+                            for i, char in enumerate(text):
+                                if char in '.!?' or char == '\n':
+                                    sentence_end = i + 1
+                            
+                            if sentence_end > 0:
+                                # Extract the complete sentence
+                                sentence = text[:sentence_end].strip()
+                                if sentence:
+                                    ai_response.append(sentence)
+                                    complete_response.append(sentence)
+                                    audio_queue.add_sentences([sentence])
+                                # Keep the remaining text
+                                current_sentence = [text[sentence_end:]]
+                
+                # Check for stream completion
+                if choice.get("finish_reason") == "stop":
+                    # Process any remaining text as the final sentence
+                    text = ''.join(current_sentence).strip()
+                    if text:
+                        # Clean up any final special characters
+                        text = text.rstrip('.,!?')  # Remove trailing punctuation
+                        if text:  # If there's still text after cleanup
+                            ai_response.append(text)
+                            complete_response.append(text)
+                            audio_queue.add_sentences([text])
+                    break  # Exit the stream processing
+        
+        # Add complete response to history
+        messages.append({"role": "assistant", "content": ' '.join(complete_response)})
+        print()  # New line after streaming
+        
+        # Wait for audio generation and playback to finish
+        time.sleep(0.1)  # Small delay to ensure final sentence is queued
+        audio_queue.stop()  # Signal generation to stop after current sentence
+        playback_thread.join()  # Wait for playback to finish
+        
         return False, None
-    
-    # Filter AI response
-    ai_response = filter_response(ai_response)
-
-    # Add AI response to history
-    messages.append({"role": "assistant", "content": ai_response})
-    print(f"\nAI: {ai_response}")
-    
-    # Generate and play audio sentence by sentence
-    print("\nGenerating and playing speech...")
-    sentences = split_into_sentences(ai_response)
-    if not sentences:
+        
+    except Exception as e:
+        print(f"\nError during streaming: {str(e)}")
+        if 'audio_queue' in locals():
+            audio_queue.stop()
         return False, None
-    
-    # Generate and play each sentence with interruption checking
-    was_interrupted, interrupt_audio, _ = generate_and_play_sentences(
-        sentences=sentences,
-        generator=generator,
-        speed=speed,
-        play_function=play_audio_with_interrupt,
-        check_interrupt=check_for_speech,
-        output_dir=settings.OUTPUT_DIR
-    )
-    
-    if was_interrupted:
-        print("\nInterrupted during playback!")
-        return True, interrupt_audio
-    return False, None
 
 def main():
     try:

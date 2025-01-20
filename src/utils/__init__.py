@@ -10,6 +10,7 @@ from .speech import (
     transcribe_audio
 )
 from .config import settings
+from .text_chunker import TextChunker
 
 __all__ = [
     'play_audio',
@@ -29,5 +30,6 @@ __all__ = [
     'check_for_speech',
     'play_audio_with_interrupt',
     'transcribe_audio',
-    'settings'
+    'settings',
+    'TextChunker',
 ] 

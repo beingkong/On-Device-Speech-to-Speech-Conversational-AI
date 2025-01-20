@@ -21,6 +21,10 @@ settings.setup_directories()
 def process_input(user_input: str, messages: list, generator: VoiceGenerator, speed: float) -> tuple[bool, None]:
     """Processes user input, generates a response, and handles audio output.
 
+    The function sends user input to the AI, processes the streaming response in chunks,
+    and plays the audio. It prioritizes a quick initial response by using a smaller
+    target size for the first sentence. It also allows for interruptions during playback.
+
     Args:
         user_input: The input text from the user.
         messages: The list of chat messages for context.
@@ -34,8 +38,9 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
     
     print("\nThinking...")
     ai_response = []
-    current_sentence = []
     complete_response = []
+    current_text = []
+    found_first_sentence = False
     
     try:
         response_stream = get_ai_response(
@@ -50,10 +55,79 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
         if response_stream is None:
             print("Failed to get AI response stream.")
             return False, None
-            
         audio_queue = AudioGenerationQueue(generator, speed)
         audio_queue.start()
         
+        def should_process_chunk(text: str) -> bool:
+            """Check if we have enough text to process a chunk.
+            
+            Args:
+                text: Current accumulated text
+                
+            Returns:
+                bool: True if we should process the chunk
+            """
+            is_sentence_end = any(text.endswith(p) for p in ('.', '!', '?', ',','-',';', ':'))
+            if is_sentence_end:
+                return True
+                
+            words = text.split()
+            if not found_first_sentence:
+                return len(words) >= settings.FIRST_SENTENCE_SIZE
+            return len(words) >= settings.TARGET_SIZE
+        
+        def process_chunk(text: str) -> str:
+            """Process text chunk and return remaining text.
+            
+            Args:
+                text: Text to process
+            
+            Returns:
+                Remaining unprocessed text
+            """
+            nonlocal found_first_sentence
+            
+            words = text.split()
+            
+            if len(words) == 0:
+                return ""
+                
+            target_size = settings.FIRST_SENTENCE_SIZE if not found_first_sentence else settings.TARGET_SIZE
+            
+
+            if len(words) <= target_size and found_first_sentence:
+                chunk = ' '.join(words)
+                if chunk.strip() and any(c.isalnum() for c in chunk):
+                    ai_response.append(chunk)
+                    complete_response.append(chunk)
+                    audio_queue.add_sentences([chunk])
+                return ""
+            
+            connectors = {'and', 'but', 'because', 'then'}
+            
+            break_points = []
+            for i, word in enumerate(words[:target_size+3]):
+                if any(word.endswith(p) for p in ('.', '!', '?', ',','-',';', ':')) or any(p in word for p in ('\n', '\r')):
+                    break_points.append((i, 2))
+                elif word.lower() in connectors:
+                    break_points.append((i, 1))
+            
+            found_first_sentence = True
+            break_points.sort(key=lambda x: (x[1], x[0]), reverse=True)
+            
+            if break_points and break_points[0][0] >= target_size-2:
+                split_point = break_points[0][0] + 1
+            else:
+                split_point = target_size
+            
+            chunk = ' '.join(words[:split_point])
+            if chunk.strip() and any(c.isalnum() for c in chunk):
+                ai_response.append(chunk)
+                complete_response.append(chunk)
+                audio_queue.add_sentences([chunk])
+            
+            return ' '.join(words[split_point:])
+
         def audio_playback_worker() -> tuple[bool, None]:
             """Manages audio playback in a separate thread, handling interruptions.
 
@@ -78,7 +152,7 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
                             interrupt_audio = interrupt_data
                             break
                     else:
-                        time.sleep(0.01)
+                        time.sleep(settings.PLAYBACK_DELAY)
                         
                     if not audio_queue.is_running and audio_queue.sentence_queue.empty() and audio_queue.audio_queue.empty():
                         break
@@ -106,30 +180,16 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
                         content = delta["content"]
                         if content:
                             print(content, end='', flush=True)
-                            current_sentence.append(content)
+                            current_text.append(content)
                             
-                            text = ''.join(current_sentence)
-                            sentence_end = -1
-                            for i, char in enumerate(text):
-                                if char in '.!:,-?;' or char == '\n':
-                                    sentence_end = i + 1
-                            
-                            if sentence_end > 0:
-                                sentence = text[:sentence_end].strip()
-                                if sentence:
-                                    ai_response.append(sentence)
-                                    complete_response.append(sentence)
-                                    audio_queue.add_sentences([sentence])
-                                current_sentence = [text[sentence_end:]]
-                
+                            text = ''.join(current_text)
+                            if should_process_chunk(text):
+                                remaining = process_chunk(text)
+                                current_text = [remaining]
                 if choice.get("finish_reason") == "stop":
-                    text = ''.join(current_sentence).strip()
+                    text = ''.join(current_text).strip()
                     if text:
-                        text = text.rstrip('.,!?')
-                        if text:
-                            ai_response.append(text)
-                            complete_response.append(text)
-                            audio_queue.add_sentences([text])
+                        process_chunk(text)
                     break
         
         messages.append({"role": "assistant", "content": ' '.join(complete_response)})
@@ -165,18 +225,6 @@ def main():
         print("\nInitializing voice generator...")
         result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
         print(result)
-        
-        print("\nTesting LM Studio connection...")
-        test_response = get_ai_response(
-            messages=[{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT},
-                     {"role": "user", "content": "Hello"}],
-            llm_model=settings.LLM_MODEL,
-            lm_studio_url=settings.LM_STUDIO_URL,
-            max_tokens=settings.MAX_TOKENS
-        )
-        if test_response is None:
-            print("Error: Could not connect to LM Studio. Make sure it's running and the API is accessible.")
-            return
         
         print("\n=== Voice Chat Bot Ready ===")
         print("The bot is now listening for speech.")

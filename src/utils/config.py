@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     SPEECH_CHECK_TIMEOUT: float = Field(default=0.1, env="SPEECH_CHECK_TIMEOUT")
     SPEECH_CHECK_THRESHOLD: float = Field(default=0.02, env="SPEECH_CHECK_THRESHOLD")
     ROLLING_BUFFER_TIME: float = Field(default=0.5, env="ROLLING_BUFFER_TIME")
+    TARGET_SIZE: int = Field(default=15, env="TARGET_SIZE")
+    FIRST_SENTENCE_SIZE: int = Field(default=3, env="FIRST_SENTENCE_SIZE")
+    PLAYBACK_DELAY: float = Field(default=0.005, env="PLAYBACK_DELAY")
 
     def setup_directories(self):
         """Create necessary directories if they don't exist"""

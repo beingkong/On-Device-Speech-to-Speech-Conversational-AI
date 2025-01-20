@@ -79,4 +79,32 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 # Create a global settings instance
-settings = Settings() 
+settings = Settings()
+
+def configure_logging():
+    """Configure logging to suppress all logs"""
+    import logging
+    import warnings
+    
+    # Suppress all warnings
+    warnings.filterwarnings('ignore')
+    
+    # Suppress all logging
+    logging.getLogger().setLevel(logging.ERROR)
+    
+    # Suppress specific loggers that might be noisy
+    logging.getLogger('urllib3').setLevel(logging.ERROR)
+    logging.getLogger('PIL').setLevel(logging.ERROR)
+    logging.getLogger('matplotlib').setLevel(logging.ERROR)
+    logging.getLogger('torch').setLevel(logging.ERROR)
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+    logging.getLogger('whisper').setLevel(logging.ERROR)
+    logging.getLogger('transformers').setLevel(logging.ERROR)
+    logging.getLogger('pyannote').setLevel(logging.ERROR)
+    logging.getLogger('sounddevice').setLevel(logging.ERROR)
+    logging.getLogger('soundfile').setLevel(logging.ERROR)
+    logging.getLogger('uvicorn').setLevel(logging.ERROR)
+    logging.getLogger('fastapi').setLevel(logging.ERROR)
+
+# Configure logging on import
+configure_logging() 

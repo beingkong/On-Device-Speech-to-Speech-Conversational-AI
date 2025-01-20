@@ -15,7 +15,6 @@ def save_audio_file(audio_data: np.ndarray, output_dir: Path, sample_rate: int =
         audio_data = np.concatenate(audio_data)
         
     sf.write(str(output_path), audio_data, sample_rate)
-    print(f"Audio saved to: {output_path}")
     return output_path
 
 def play_audio(audio_data: np.ndarray, sample_rate: int = 24000) -> Tuple[bool, Optional[np.ndarray]]:

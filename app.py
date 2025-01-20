@@ -1,11 +1,4 @@
 import os
-import logging
-import traceback
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 if os.name == 'nt':
     os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
@@ -22,6 +15,10 @@ import torch
 from src.utils.generator import VoiceGenerator
 from src.utils.voice import quick_mix_voice, load_voice
 from src.utils.audio import play_audio
+from src.utils.config import configure_logging
+
+# Configure logging to suppress unwanted output
+configure_logging()
 
 app = FastAPI(title="Voice Chat API")
 

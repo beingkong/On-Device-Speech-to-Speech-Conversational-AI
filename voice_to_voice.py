@@ -111,7 +111,7 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
                             text = ''.join(current_sentence)
                             sentence_end = -1
                             for i, char in enumerate(text):
-                                if char in '.!?' or char == '\n':
+                                if char in '.!:,-?;' or char == '\n':
                                     sentence_end = i + 1
                             
                             if sentence_end > 0:

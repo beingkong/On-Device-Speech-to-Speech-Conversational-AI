@@ -16,15 +16,22 @@ from src.utils.audio_queue import AudioGenerationQueue
 from src.utils.llm import parse_stream_chunk
 import threading
 
-# Setup environment
 settings.setup_directories()
 
-def process_input(user_input, messages, generator, speed):
-    """Process user input and generate response"""
-    # Add user message to history
+def process_input(user_input: str, messages: list, generator: VoiceGenerator, speed: float) -> tuple[bool, None]:
+    """Processes user input, generates a response, and handles audio output.
+
+    Args:
+        user_input: The input text from the user.
+        messages: The list of chat messages for context.
+        generator: The voice generator object.
+        speed: The speed at which to generate audio.
+
+    Returns:
+        A tuple indicating if the process was interrupted and None.
+    """
     messages.append({"role": "user", "content": user_input})
     
-    # Get AI response with interruption check and streaming
     print("\nThinking...")
     ai_response = []
     current_sentence = []
@@ -37,32 +44,33 @@ def process_input(user_input, messages, generator, speed):
             lm_studio_url=settings.LM_STUDIO_URL,
             max_tokens=settings.MAX_TOKENS,
             temperature=settings.LM_STUDIO_TEMPERATURE,
-            stream=True  # Enable streaming
+            stream=True
         )
         
         if response_stream is None:
             print("Failed to get AI response stream.")
             return False, None
             
-        # Start audio generation queue early
         audio_queue = AudioGenerationQueue(generator, speed)
         audio_queue.start()
         
-        # Start a thread for audio playback
-        def audio_playback_worker():
+        def audio_playback_worker() -> tuple[bool, None]:
+            """Manages audio playback in a separate thread, handling interruptions.
+
+            Returns:
+                A tuple indicating if the playback was interrupted and the interrupt audio data.
+            """
             was_interrupted = False
             interrupt_audio = None
             
             try:
                 while True:
-                    # Check for interruption
                     speech_detected, audio_data = check_for_speech()
                     if speech_detected:
                         was_interrupted = True
                         interrupt_audio = audio_data
                         break
                     
-                    # Try to get and play next audio segment
                     audio_data, _ = audio_queue.get_next_audio()
                     if audio_data is not None:
                         was_interrupted, interrupt_data = play_audio_with_interrupt(audio_data)
@@ -70,10 +78,8 @@ def process_input(user_input, messages, generator, speed):
                             interrupt_audio = interrupt_data
                             break
                     else:
-                        # No audio available yet, small sleep
                         time.sleep(0.01)
                         
-                    # Check if we should exit (text generation done and queue empty)
                     if not audio_queue.is_running and audio_queue.sentence_queue.empty() and audio_queue.audio_queue.empty():
                         break
                         
@@ -82,23 +88,18 @@ def process_input(user_input, messages, generator, speed):
                 
             return was_interrupted, interrupt_audio
             
-        # Start audio playback thread
         playback_thread = threading.Thread(target=audio_playback_worker)
         playback_thread.daemon = True
         playback_thread.start()
         
-        # Process streaming response
         for chunk in response_stream:
-            # Parse the chunk
             data = parse_stream_chunk(chunk)
             if not data:
                 continue
                 
-            # Get the text from the chunk
             if "choices" in data and len(data["choices"]) > 0:
                 choice = data["choices"][0]
                 
-                # Get content from delta if present
                 if "delta" in choice:
                     delta = choice["delta"]
                     if "content" in delta:
@@ -107,45 +108,36 @@ def process_input(user_input, messages, generator, speed):
                             print(content, end='', flush=True)
                             current_sentence.append(content)
                             
-                            # Check if this content completes a sentence
                             text = ''.join(current_sentence)
-                            # Look for sentence endings or line breaks
                             sentence_end = -1
                             for i, char in enumerate(text):
                                 if char in '.!?' or char == '\n':
                                     sentence_end = i + 1
                             
                             if sentence_end > 0:
-                                # Extract the complete sentence
                                 sentence = text[:sentence_end].strip()
                                 if sentence:
                                     ai_response.append(sentence)
                                     complete_response.append(sentence)
                                     audio_queue.add_sentences([sentence])
-                                # Keep the remaining text
                                 current_sentence = [text[sentence_end:]]
                 
-                # Check for stream completion
                 if choice.get("finish_reason") == "stop":
-                    # Process any remaining text as the final sentence
                     text = ''.join(current_sentence).strip()
                     if text:
-                        # Clean up any final special characters
-                        text = text.rstrip('.,!?')  # Remove trailing punctuation
-                        if text:  # If there's still text after cleanup
+                        text = text.rstrip('.,!?')
+                        if text:
                             ai_response.append(text)
                             complete_response.append(text)
                             audio_queue.add_sentences([text])
-                    break  # Exit the stream processing
+                    break
         
-        # Add complete response to history
         messages.append({"role": "assistant", "content": ' '.join(complete_response)})
-        print()  # New line after streaming
+        print()
         
-        # Wait for audio generation and playback to finish
-        time.sleep(0.1)  # Small delay to ensure final sentence is queued
-        audio_queue.stop()  # Signal generation to stop after current sentence
-        playback_thread.join()  # Wait for playback to finish
+        time.sleep(0.1)
+        audio_queue.stop()
+        playback_thread.join()
         
         return False, None
         
@@ -156,28 +148,24 @@ def process_input(user_input, messages, generator, speed):
         return False, None
 
 def main():
+    """Main function to run the voice chat bot."""
     try:
-        # Initialize the voice generator
         generator = VoiceGenerator(settings.MODELS_DIR, settings.VOICES_DIR)
         
-        # Initialize Whisper
         print("\nInitializing Whisper model...")
         whisper_processor = WhisperProcessor.from_pretrained(settings.WHISPER_MODEL)
         whisper_model = WhisperForConditionalGeneration.from_pretrained(settings.WHISPER_MODEL)
         
-        # Initialize VAD pipeline
         print("\nInitializing Voice Activity Detection...")
         vad_pipeline = init_vad_pipeline(settings.HUGGINGFACE_TOKEN)
         
         print("\n=== Voice Chat Bot Initializing ===")
         print("Device being used:", generator.device)
         
-        # Initialize the model
         print("\nInitializing voice generator...")
         result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
         print(result)
         
-        # Test LM Studio connection
         print("\nTesting LM Studio connection...")
         test_response = get_ai_response(
             messages=[{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT},
@@ -201,23 +189,18 @@ def main():
         print("  - Type 'quit' to exit")
         print("-" * 50)
         
-        # Initialize chat history
         messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
         speed = settings.SPEED
         
-        # Chat loop
         while True:
             try:
-                # Check for keyboard input (non-blocking)
                 if msvcrt.kbhit():
                     user_input = input("\nYou (text): ").strip()
                     
-                    # Check for exit command
                     if user_input.lower() == 'quit':
                         print("Goodbye!")
                         break
                         
-                    # Handle manual voice recording
                     if user_input.lower() == 'v':
                         audio_data = record_audio()
                         if audio_data is not None:
@@ -229,7 +212,6 @@ def main():
                                     print(f"You (voice): {user_input}")
                                     was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
                                     if was_interrupted and speech_data is not None:
-                                        # Process the speech that caused interruption
                                         speech_segments = detect_speech_segments(vad_pipeline, speech_data)
                                         if speech_segments is not None:
                                             print("\nTranscribing interrupted speech...")
@@ -238,13 +220,10 @@ def main():
                                                 print(f"You (voice): {user_input}")
                                                 process_input(user_input, messages, generator, speed)
                     else:
-                        # Handle other commands
                         if handle_commands(user_input, generator, speed, settings.TTS_MODEL):
                             continue
-                        # Process text input with interruption handling
                         was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
                         if was_interrupted and speech_data is not None:
-                            # Process the speech that caused interruption
                             speech_segments = detect_speech_segments(vad_pipeline, speech_data)
                             if speech_segments is not None:
                                 print("\nTranscribing interrupted speech...")
@@ -254,10 +233,8 @@ def main():
                                     process_input(user_input, messages, generator, speed)
                         continue
                 
-                # Continuously monitor audio
                 audio_data = record_continuous_audio()
                 if audio_data is not None:
-                    # Detect speech segments
                     speech_segments = detect_speech_segments(vad_pipeline, audio_data)
                     
                     if speech_segments is not None:
@@ -265,10 +242,8 @@ def main():
                         user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
                         if user_input.strip():
                             print(f"You (voice): {user_input}")
-                            # Process the transcribed input with interruption handling
                             was_interrupted, speech_data = process_input(user_input, messages, generator, speed)
                             if was_interrupted and speech_data is not None:
-                                # Process the speech that caused interruption
                                 speech_segments = detect_speech_segments(vad_pipeline, speech_data)
                                 if speech_segments is not None:
                                     print("\nTranscribing interrupted speech...")

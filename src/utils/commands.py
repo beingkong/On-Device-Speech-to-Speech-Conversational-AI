@@ -4,13 +4,22 @@ from pathlib import Path
 from .voice import quick_mix_voice
 
 def handle_commands(user_input, generator, speed, model_path=None):
-    """Handle bot commands, return True if command was handled"""
-    # Exit command
+    """
+    Handles bot commands to control the voice generator.
+
+    Args:
+        user_input (str): The command input from the user.
+        generator: The voice generator object.
+        speed (float): The current speed of the generator.
+        model_path (str, optional): The path to the model. Defaults to None.
+
+    Returns:
+        bool: True if a command was handled, False otherwise.
+    """
     if user_input.lower() == 'quit':
         print("Goodbye!")
         return True
         
-    # List voices command
     if user_input.lower() == 'voices':
         voices = generator.list_available_voices()
         print("\nAvailable voices:")
@@ -18,7 +27,6 @@ def handle_commands(user_input, generator, speed, model_path=None):
             print(f"- {voice}")
         return True
         
-    # Change speed command
     if user_input.startswith('speed='):
         try:
             new_speed = float(user_input.split('=')[1])
@@ -28,7 +36,6 @@ def handle_commands(user_input, generator, speed, model_path=None):
             print("Invalid speed value. Use format: speed=1.2")
             return True
         
-    # Change voice command
     if user_input.startswith('voice='):
         try:
             voice = user_input.split('=')[1]
@@ -41,31 +48,26 @@ def handle_commands(user_input, generator, speed, model_path=None):
             print(f"Error changing voice: {str(e)}")
         return True
         
-    # Mix voices command
     if user_input.startswith('mix='):
         try:
-            # Parse the mix command
             mix_input = user_input.split('=')[1]
             voices_weights = mix_input.split(':')
             voices = [v.strip() for v in voices_weights[0].split(',')]
             
-            # Check if weights are provided
             if len(voices_weights) > 1:
                 weights = [float(w.strip()) for w in voices_weights[1].split(',')]
             else:
-                weights = [0.5, 0.5]  # Default to equal weights
+                weights = [0.5, 0.5]
                 
             if len(voices) != 2 or len(weights) != 2:
                 print("Mix command requires exactly two voices. Format: mix=voice1,voice2[:weight1,weight2]")
                 return True
                 
-            # Verify voices exist
             available_voices = generator.list_available_voices()
             if not all(voice in available_voices for voice in voices):
                 print("One or more voices not found. Use 'voices' to list available voices.")
                 return True
                 
-            # Load and mix voices
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_name = f"af_mixed_voice_{timestamp}"
             
@@ -75,14 +77,12 @@ def handle_commands(user_input, generator, speed, model_path=None):
                 voice = torch.load(voice_path, weights_only=True)
                 voice_tensors.append(voice)
             
-            # Mix voices
             mixed = quick_mix_voice(output_name, generator.voices_dir, *voice_tensors, weights=weights)
             
-            # Initialize with mixed voice
             generator.initialize(model_path or generator.model_path, output_name)
             print(f"Mixed voices: {voices[0]} ({weights[0]:.1f}) and {voices[1]} ({weights[1]:.1f})")
         except Exception as e:
             print(f"Error mixing voices: {str(e)}")
         return True
     
-    return False 
+    return False

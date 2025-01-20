@@ -2,16 +2,33 @@ import re
 import requests
 import json
 
-def filter_response(response):
-    """Remove markdown and emojis from AI response"""
-    # Remove markdown
-    response = re.sub(r'\*\*|__|~~|`', '', response)  # Remove markdown symbols
-    # Remove emojis
-    response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)  # Remove emojis
+def filter_response(response: str) -> str:
+    """Remove markdown and emojis from a string.
+
+    Args:
+        response: The string to filter.
+
+    Returns:
+        The filtered string.
+    """
+    response = re.sub(r'\*\*|__|~~|`', '', response)
+    response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)
     return response
 
-def get_ai_response(messages, llm_model, lm_studio_url, max_tokens, temperature=0.7, stream=False):
-    """Get response from LM Studio API"""
+def get_ai_response(messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, temperature: float = 0.7, stream: bool = False):
+    """Get response from LM Studio API.
+
+    Args:
+        messages: A list of message dictionaries.
+        llm_model: The name of the LLM model.
+        lm_studio_url: The URL of the LM Studio API.
+        max_tokens: The maximum number of tokens to generate.
+        temperature: The sampling temperature.
+        stream: Whether to stream the response.
+
+    Returns:
+        The response from the API, either as an iterator of lines or a string.
+    """
     try:
         response = requests.post(
             f"{lm_studio_url}/chat/completions",
@@ -23,7 +40,7 @@ def get_ai_response(messages, llm_model, lm_studio_url, max_tokens, temperature=
                 "stream": stream
             },
             headers={"Content-Type": "application/json"},
-            stream=stream  # Enable streaming at request level
+            stream=stream
         )
         response.raise_for_status()
         
@@ -36,16 +53,21 @@ def get_ai_response(messages, llm_model, lm_studio_url, max_tokens, temperature=
         print(f"Error communicating with LM Studio: {str(e)}")
         return None
 
-def parse_stream_chunk(chunk):
-    """Parse a chunk from the stream into a response object"""
+def parse_stream_chunk(chunk: bytes) -> dict | None:
+    """Parse a chunk from the stream into a response object.
+
+    Args:
+        chunk: The chunk of data from the stream.
+
+    Returns:
+        A dictionary representing the parsed chunk, or None if parsing fails.
+    """
     if not chunk:
         return None
         
     try:
-        # Decode the chunk
         text = chunk.decode('utf-8').strip()
         
-        # Handle [DONE] messages specially
         if text == '[DONE]' or text == 'data: [DONE]':
             return {
                 "choices": [{
@@ -54,27 +76,20 @@ def parse_stream_chunk(chunk):
                 }]
             }
             
-        # Remove 'data: ' prefix if present
         if text.startswith('data: '):
             text = text[6:]
             
-        # Filter out emojis and special characters before JSON parsing
         text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
             
         try:
-            # Parse the JSON
             data = json.loads(text)
             
-            # Handle OpenAI format
             if "choices" in data and len(data["choices"]) > 0:
                 choice = data["choices"][0]
-                # If this is a delta message
                 if "delta" in choice:
-                    # Filter content if present
                     if "content" in choice["delta"]:
                         choice["delta"]["content"] = filter_response(choice["delta"]["content"])
                     return data
-                # If this is a regular message
                 elif "message" in choice:
                     if "content" in choice["message"]:
                         choice["message"]["content"] = filter_response(choice["message"]["content"])
@@ -83,7 +98,6 @@ def parse_stream_chunk(chunk):
                             "delta": choice["message"]
                         }]
                     }
-                # If this is a completion message
                 elif "finish_reason" in choice:
                     return {
                         "choices": [{
@@ -94,7 +108,6 @@ def parse_stream_chunk(chunk):
             return data
             
         except json.JSONDecodeError as e:
-            # If JSON parsing fails, it might be a direct text response
             if text and not text.startswith('{') and not text.startswith('['):
                 filtered_text = filter_response(text)
                 return {
@@ -107,6 +120,6 @@ def parse_stream_chunk(chunk):
             raise e
             
     except Exception as e:
-        if str(e) != "Expecting value: line 1 column 2 (char 1)":  # Skip common streaming artifacts
+        if str(e) != "Expecting value: line 1 column 2 (char 1)":
             print(f"Error parsing stream chunk: {str(e)}")
-        return None 
+        return None

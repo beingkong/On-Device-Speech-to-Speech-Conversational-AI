@@ -5,13 +5,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def init_espeak():
-    # from dotenv import load_dotenv
-    # load_dotenv()
     """Initialize eSpeak environment variables. Must be called before any other imports."""
     os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
-# Initialize eSpeak before anything else
 init_espeak()
 
 from pydantic_settings import BaseSettings
@@ -19,24 +16,21 @@ from pydantic import Field
 from typing import Optional
 
 class Settings(BaseSettings):
-    # Base paths
+    """Settings class to manage application configurations."""
     BASE_DIR: Path = Path(__file__).parent.parent.parent
     MODELS_DIR: Path = BASE_DIR / 'data' / 'models'
     VOICES_DIR: Path = BASE_DIR / 'data' / 'voices'
     OUTPUT_DIR: Path = BASE_DIR / 'output'
     RECORDINGS_DIR: Path = BASE_DIR / 'recordings'
 
-    # eSpeak settings
     ESPEAK_LIBRARY_PATH: str = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     ESPEAK_PATH: str = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
-    # Model settings
     TTS_MODEL: str = Field(..., env="TTS_MODEL")
     VOICE_NAME: str = Field(..., env="VOICE_NAME")
     SPEED: float = Field(default=1.0, env="SPEED")
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
 
-    # LM Studio settings
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
@@ -46,17 +40,14 @@ class Settings(BaseSettings):
     LM_STUDIO_RETRY_DELAY: float = Field(default=0.5, env="LM_STUDIO_RETRY_DELAY")
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
 
-    # Whisper model settings
     WHISPER_MODEL: str = Field(default="openai/whisper-tiny.en", env="WHISPER_MODEL")
     
-    # VAD model settings
     VAD_MODEL: str = Field(default="pyannote/segmentation-3.0", env="VAD_MODEL")
     VAD_MIN_DURATION_ON: float = Field(default=0.1, env="VAD_MIN_DURATION_ON")
     VAD_MIN_DURATION_OFF: float = Field(default=0.1, env="VAD_MIN_DURATION_OFF")
 
-    # Audio settings
     CHUNK: int = Field(default=1024, env="CHUNK")
-    FORMAT: str = Field(default="pyaudio.paFloat32", env="FORMAT")  # pyaudio.paFloat32
+    FORMAT: str = Field(default="pyaudio.paFloat32", env="FORMAT")
     CHANNELS: int = Field(default=1, env="CHANNELS")
     RATE: int = Field(default=16000, env="RATE")
     OUTPUT_SAMPLE_RATE: int = Field(default=24000, env="OUTPUT_SAMPLE_RATE")
@@ -78,7 +69,6 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
-# Create a global settings instance
 settings = Settings()
 
 def configure_logging():
@@ -86,13 +76,10 @@ def configure_logging():
     import logging
     import warnings
     
-    # Suppress all warnings
     warnings.filterwarnings('ignore')
     
-    # Suppress all logging
     logging.getLogger().setLevel(logging.ERROR)
     
-    # Suppress specific loggers that might be noisy
     logging.getLogger('urllib3').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
     logging.getLogger('matplotlib').setLevel(logging.ERROR)
@@ -106,5 +93,4 @@ def configure_logging():
     logging.getLogger('uvicorn').setLevel(logging.ERROR)
     logging.getLogger('fastapi').setLevel(logging.ERROR)
 
-# Configure logging on import
-configure_logging() 
+configure_logging()

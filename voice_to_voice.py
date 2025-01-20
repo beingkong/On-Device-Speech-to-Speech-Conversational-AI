@@ -67,7 +67,7 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
             Returns:
                 bool: True if we should process the chunk
             """
-            is_sentence_end = any(text.endswith(p) for p in ('.', '!', '?', ',','-',';', ':'))
+            is_sentence_end = any(text.endswith(p) for p in ('.', '!', '?',';', ':'))
             if is_sentence_end:
                 return True
                 
@@ -107,7 +107,7 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
             
             break_points = []
             for i, word in enumerate(words[:target_size+3]):
-                if any(word.endswith(p) for p in ('.', '!', '?', ',','-',';', ':')) or any(p in word for p in ('\n', '\r')):
+                if any(word.endswith(p) for p in ('.', '!', '?', ';', ':')) or any(p in word for p in ('\n', '\r')):
                     break_points.append((i, 2))
                 elif word.lower() in connectors:
                     break_points.append((i, 1))

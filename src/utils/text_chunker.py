@@ -4,54 +4,40 @@ class TextChunker:
     """A class to handle intelligent text chunking for voice generation."""
     
     def __init__(self):
-        """Initialize the TextChunker with break points and priorities."""
+        """Initialize the TextChunker with break points."""
         self.current_text = []
         self.found_first_sentence = False
         self.semantic_breaks = {
-            # Strong breaks (priority 4)
-            'however': 4, 'therefore': 4, 'furthermore': 4, 'moreover': 4, 'nevertheless': 4,
-            # Medium breaks (priority 3)
-            'while': 3, 'although': 3, 'unless': 3, 'since': 3,
-            # Basic connectors (priority 2)
-            'and': 2, 'but': 2, 'because': 2, 'then': 2,
+            'however', 'therefore', 'furthermore', 'moreover', 'nevertheless',
+            'while', 'although', 'unless', 'since',
+            'and', 'but', 'because', 'then', ',', '-'
         }
-        self.punctuation_priorities = {'.': 5, '!': 5, '?': 5, ';': 4, ':': 4, ',': 3, '-': 2}
+        self.sentence_breaks = {'.', '!', '?', ':', ';'}
         
     def should_process(self, text: str) -> bool:
-        """Determines if text should be processed based on length or punctuation."""
-        if any(text.endswith(p) for p in self.punctuation_priorities):
+        """Determines if current accumulated text should be processed."""
+        words = text.split()
+        current_size = len(words)
+        target = settings.FIRST_SENTENCE_SIZE if not self.found_first_sentence else settings.TARGET_SIZE
+        
+        # For first sentence, break at any semantic break or punctuation
+        if not self.found_first_sentence:
+            # Check if the current word/token contains any semantic break or punctuation
+            current_word = words[-1] if words else ""
+            if any(break_char in current_word for break_char in self.semantic_breaks):
+                return True
+            if any(break_char in current_word for break_char in self.sentence_breaks):
+                return True
+            return False
+            
+        # For subsequent sentences
+        if any(text.endswith(p) for p in self.sentence_breaks) and current_size > target/2:
             return True
             
-        words = text.split()
-        target = settings.FIRST_SENTENCE_SIZE if not self.found_first_sentence else settings.TARGET_SIZE
-        return len(words) >= target
-        
-    def find_break_point(self, words: list, target_size: int) -> int:
-        """Finds optimal break point in text."""
-        if len(words) <= target_size:
-            return len(words)
+        if current_size > target and words[-1].lower() in self.semantic_breaks:
+            return True
             
-        break_points = []
-        
-        # Single pass to collect all break points
-        for i, word in enumerate(words[:target_size + 3]):
-            word_lower = word.lower()
-            
-            # Check punctuation and semantic breaks in one pass
-            priority = self.semantic_breaks.get(word_lower, 0)
-            for punct, punct_priority in self.punctuation_priorities.items():
-                if word.endswith(punct):
-                    priority = max(priority, punct_priority)
-                    
-            if priority > 0:
-                break_points.append((i, priority, -abs(i - target_size)))
-        
-        if not break_points:
-            return target_size
-            
-        # Sort once and take best break point
-        break_points.sort(key=lambda x: (x[1], x[2]), reverse=True)
-        return break_points[0][0] + 1
+        return False
         
     def process(self, text: str, audio_queue) -> str:
         """Process text chunk and return remaining text."""
@@ -62,15 +48,10 @@ class TextChunker:
         if not words:
             return ""
             
-        target_size = settings.FIRST_SENTENCE_SIZE if not self.found_first_sentence else settings.TARGET_SIZE
-        split_point = self.find_break_point(words, target_size)
-        
-        if split_point:
-            chunk = ' '.join(words[:split_point]).strip()
-            if chunk and any(c.isalnum() for c in chunk):
-                chunk = chunk.rstrip(',')
-                audio_queue.add_sentences([chunk])
+        if self.should_process(text):
+            if any(c.isalnum() for c in text):
+                audio_queue.add_sentences([text])
                 self.found_first_sentence = True
-                return ' '.join(words[split_point:]) if split_point < len(words) else ""
+                return ""
         
-        return ""
+        return text

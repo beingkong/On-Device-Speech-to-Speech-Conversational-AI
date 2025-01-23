@@ -3,6 +3,7 @@ import msvcrt
 import traceback
 import time
 import torch
+import logging
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from src.utils.config import settings
 from src.utils import (
@@ -18,13 +19,20 @@ import threading
 from src.utils.text_chunker import TextChunker
 
 settings.setup_directories()
+logger = logging.getLogger('voice_chat')
 
 def process_input(user_input: str, messages: list, generator: VoiceGenerator, speed: float) -> tuple[bool, None]:
     """Processes user input, generates a response, and handles audio output."""
+    start_time = time.time()
     messages.append({"role": "user", "content": user_input})
     print("\nThinking...")
     
     try:
+        # Store all timing and response info to log at the end
+        timing_info = []
+        complete_response = []
+        
+        llm_start_time = time.time()
         response_stream = get_ai_response(
             messages=messages,
             llm_model=settings.LLM_MODEL,
@@ -38,10 +46,15 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
             print("Failed to get AI response stream.")
             return False, None
             
+        llm_first_token_time = time.time()
+        timing_info.append(f"1. Time to first LLM token: {llm_first_token_time - start_time:.2f} seconds")
+            
         audio_queue = AudioGenerationQueue(generator, speed)
         audio_queue.start()
         chunker = TextChunker()
-        complete_response = []
+        first_audio_generated = False
+        first_token_received = False
+        current_sentence = []
         
         # Start audio playback thread
         playback_thread = threading.Thread(
@@ -60,20 +73,71 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
             if "delta" in choice and "content" in choice["delta"]:
                 content = choice["delta"]["content"]
                 if content:
-                    print(content, end='', flush=True)
-                    chunker.current_text.append(content)
+                    if not first_token_received:
+                        first_token_received = True
+                        timing_info.append(f"2. Time to first text token: {time.time() - start_time:.2f} seconds")
                     
-                    text = ''.join(chunker.current_text)
-                    if chunker.should_process(text):
-                        remaining = chunker.process(text, audio_queue)
-                        chunker.current_text = [remaining]
-                        complete_response.append(text[:len(text)-len(remaining)])
+                    print(content, end='', flush=True)
+                    current_sentence.append(content)
+                    text = ''.join(current_sentence)
+                    
+                    # Check if we should send this for audio generation
+                    should_process = False
+                    if not chunker.found_first_sentence:
+                        # For first sentence, be aggressive - break at any semantic break or punctuation
+                        if any(break_char in content for break_char in chunker.semantic_breaks) or \
+                           any(break_char in content for break_char in chunker.sentence_breaks):
+                            should_process = True
+                    else:
+                        # For subsequent sentences, only break at sentence breaks or if over target size
+                        words = text.split()
+                        if any(break_char in content for break_char in chunker.sentence_breaks) and \
+                           len(words) > settings.TARGET_SIZE/2:
+                            should_process = True
+                        elif len(words) > settings.TARGET_SIZE and \
+                             any(break_char in content for break_char in chunker.semantic_breaks):
+                            should_process = True
+                    
+                    if should_process and any(c.isalnum() for c in text):
+                        # Keep track of where we found the break
+                        break_idx = -1
+                        # Find the last occurrence of any break character
+                        for break_char in (chunker.sentence_breaks | chunker.semantic_breaks):
+                            idx = text.rfind(break_char)
+                            if idx > break_idx:
+                                break_idx = idx
                         
+                        if break_idx >= 0:
+                            # Include the break character in the current chunk
+                            chunk = text[:break_idx + 1]
+                            # Keep the rest for the next sentence
+                            remaining = text[break_idx + 1:]
+                            
+                            if any(c.isalnum() for c in chunk):
+                                audio_queue.add_sentences([chunk])
+                                complete_response.append(chunk)
+                                chunker.found_first_sentence = True
+                                
+                                if not first_audio_generated and audio_queue.audio_generated > 0:
+                                    first_audio_time = time.time()
+                                    timing_info.append(f"3. Time to first audio generation: {first_audio_time - start_time:.2f} seconds")
+                                    first_audio_generated = True
+                                
+                            # Start new sentence with any remaining text
+                            current_sentence = [remaining] if remaining.strip() else []
+                        else:
+                            # If no break found but we should process, send the whole text
+                            audio_queue.add_sentences([text])
+                            complete_response.append(text)
+                            current_sentence = []
+                            chunker.found_first_sentence = True
+            
             if choice.get("finish_reason") == "stop":
-                final_text = ''.join(chunker.current_text).strip()
-                if final_text:
-                    chunker.process(final_text, audio_queue)
-                    complete_response.append(final_text)
+                # Process any remaining text
+                text = ''.join(current_sentence)
+                if text.strip() and any(c.isalnum() for c in text):
+                    audio_queue.add_sentences([text])
+                    complete_response.append(text)
                 break
         
         messages.append({"role": "assistant", "content": ' '.join(complete_response)})
@@ -82,6 +146,20 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
         time.sleep(0.1)
         audio_queue.stop()
         playback_thread.join()
+        
+        end_time = time.time()
+        timing_info.append(f"4. Total processing time: {end_time - start_time:.2f} seconds")
+        
+        # Log everything at once after processing is complete
+        logger.info("\n" + "=" * 50)
+        logger.info("User Question: " + user_input)
+        logger.info("-" * 50)
+        logger.info("\nAI Response:")
+        logger.info(' '.join(complete_response))
+        logger.info("\nTiming Results:")
+        for timing in timing_info:
+            logger.info(timing)
+        logger.info("=" * 50 + "\n")
         
         return False, None
         

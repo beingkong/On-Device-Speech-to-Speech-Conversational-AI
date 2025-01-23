@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
@@ -68,6 +69,20 @@ class Settings(BaseSettings):
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
+        # Setup logging
+        log_dir = os.path.join(os.path.dirname(self.MODELS_DIR), 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        
+        log_file = os.path.join(log_dir, 'timing.log')
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s\n%(message)s\n',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.NullHandler()  # Don't output to console
+            ]
+        )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -75,14 +90,18 @@ class Settings(BaseSettings):
 settings = Settings()
 
 def configure_logging():
-    """Configure logging to suppress all logs"""
+    """Configure logging to suppress all logs except our timing logs"""
     import logging
     import warnings
     
     warnings.filterwarnings('ignore')
     
-    logging.getLogger().setLevel(logging.ERROR)
+    # Create and configure our timing logger first
+    timing_logger = logging.getLogger('voice_chat')
+    timing_logger.setLevel(logging.INFO)
     
+    # Then suppress all other logs
+    logging.getLogger().setLevel(logging.ERROR)
     logging.getLogger('urllib3').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
     logging.getLogger('matplotlib').setLevel(logging.ERROR)

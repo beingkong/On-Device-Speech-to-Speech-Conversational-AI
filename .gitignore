@@ -5,6 +5,7 @@ __pycache__/
 data/models/
 output/
 test/
+data/logs/
 examples/
 generated_audio/
 # C extensions

@@ -20,17 +20,14 @@ class TextChunker:
         current_size = len(words)
         target = settings.FIRST_SENTENCE_SIZE if not self.found_first_sentence else settings.TARGET_SIZE
         
-        # For first sentence, break at any semantic break or punctuation
         if not self.found_first_sentence:
-            # Check if the current word/token contains any semantic break or punctuation
             current_word = words[-1] if words else ""
-            if any(break_char in current_word for break_char in self.semantic_breaks):
+            if current_word.lower() in self.semantic_breaks:
                 return True
             if any(break_char in current_word for break_char in self.sentence_breaks):
                 return True
             return False
             
-        # For subsequent sentences
         if any(text.endswith(p) for p in self.sentence_breaks) and current_size > target/2:
             return True
             

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
 
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
+    OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
     MAX_TOKENS: int = Field(default=4096, env="MAX_TOKENS")

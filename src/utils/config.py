@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     FIRST_SENTENCE_SIZE: int = Field(default=3, env="FIRST_SENTENCE_SIZE")
     PLAYBACK_DELAY: float = Field(default=0.005, env="PLAYBACK_DELAY")
 
+    LLM_TTL: int = Field(default=3600, env="LLM_TTL")  # 1 hour in seconds
+    LLM_AUTO_EVICT: bool = Field(default=False, env="LLM_AUTO_EVICT")
+
     def setup_directories(self):
         """Create necessary directories if they don't exist"""
         self.MODELS_DIR.mkdir(parents=True, exist_ok=True)

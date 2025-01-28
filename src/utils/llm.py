@@ -1,6 +1,19 @@
 import re
 import requests
 import json
+from src.utils.config import settings
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Persistent session with connection pooling
+session = requests.Session()
+adapter = HTTPAdapter(
+    pool_connections=10,
+    pool_maxsize=10,
+    max_retries=Retry(total=3, backoff_factor=0.1)
+)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
 
 def filter_response(response: str) -> str:
     """Remove markdown and emojis from a string.
@@ -15,111 +28,73 @@ def filter_response(response: str) -> str:
     response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)
     return response
 
-def get_ai_response(messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, temperature: float = 0.7, stream: bool = False):
-    """Get response from LM Studio API.
-
-    Args:
-        messages: A list of message dictionaries.
-        llm_model: The name of the LLM model.
-        lm_studio_url: The URL of the LM Studio API.
-        max_tokens: The maximum number of tokens to generate.
-        temperature: The sampling temperature.
-        stream: Whether to stream the response.
-
-    Returns:
-        The response from the API, either as an iterator of lines or a string.
-    """
+def get_ai_response(messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, 
+                   temperature: float = 0.7, stream: bool = False):
+    """Get response with streaming support and minimal overhead"""
     try:
-        response = requests.post(
+        response = session.post(
             f"{lm_studio_url}/chat/completions",
             json={
                 "messages": messages,
                 "model": llm_model,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                "stream": stream
+                "stream": stream,
+                "ttl": settings.LLM_TTL,
+                "jit": False
             },
-            headers={"Content-Type": "application/json"},
-            stream=stream
+            headers={
+                "Content-Type": "application/json",
+                "X-Auto-Evict": str(settings.LLM_AUTO_EVICT).lower()
+            },
+            timeout=30,
+            stream=stream  # Critical for streaming performance
         )
         response.raise_for_status()
         
         if stream:
-            return response.iter_lines()
+            # Directly return the raw stream iterator
+            return (parse_stream_chunk(chunk) for chunk in response.iter_content(chunk_size=None))
         else:
             return response.json()["choices"][0]["message"]["content"]
             
     except requests.RequestException as e:
-        print(f"Error communicating with LM Studio: {str(e)}")
+        print(f"API Error: {str(e)}")
         return None
 
 def parse_stream_chunk(chunk: bytes) -> dict | None:
-    """Parse a chunk from the stream into a response object.
-
-    Args:
-        chunk: The chunk of data from the stream.
-
-    Returns:
-        A dictionary representing the parsed chunk, or None if parsing fails.
-    """
-    if not chunk:
-        return None
-        
+    """Ultra-efficient stream parser with minimal processing"""
     try:
+        # Handle keep-alive chunks first
+        if chunk.startswith(b': ping'):
+            return None
+            
+        # Decode before processing
         text = chunk.decode('utf-8').strip()
-        
-        if text == '[DONE]' or text == 'data: [DONE]':
-            return {
-                "choices": [{
-                    "finish_reason": "stop",
-                    "delta": {}
-                }]
-            }
+        if not text:
+            return None
             
+        # Handle completion marker
+        if text == '[DONE]':
+            return {'done': True}
+            
+        # Extract JSON payload
         if text.startswith('data: '):
-            text = text[6:]
-            
-        text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+            text = text[6:].strip()
             
         try:
             data = json.loads(text)
-            
-            if "choices" in data and len(data["choices"]) > 0:
+            if "choices" in data and data["choices"]:
                 choice = data["choices"][0]
-                if "delta" in choice:
-                    if "content" in choice["delta"]:
-                        choice["delta"]["content"] = filter_response(choice["delta"]["content"])
-                    return data
-                elif "message" in choice:
-                    if "content" in choice["message"]:
-                        choice["message"]["content"] = filter_response(choice["message"]["content"])
-                    return {
-                        "choices": [{
-                            "delta": choice["message"]
-                        }]
-                    }
-                elif "finish_reason" in choice:
-                    return {
-                        "choices": [{
-                            "finish_reason": choice["finish_reason"],
-                            "delta": {}
-                        }]
-                    }
-            return data
-            
-        except json.JSONDecodeError as e:
-            if text and not text.startswith('{') and not text.startswith('['):
-                filtered_text = filter_response(text)
+                content = (choice.get("delta") or choice.get("message", {})).get("content", "")
                 return {
-                    "choices": [{
-                        "delta": {
-                            "content": filtered_text
-                        }
-                    }]
+                    "content": content.translate(str.maketrans('', '', '*_~`')),
+                    "done": choice.get("finish_reason") == "stop"
                 }
-            raise e
+        except json.JSONDecodeError:
+            return {"content": text.translate(str.maketrans('', '', '*_~`')), "done": False}
             
     except Exception as e:
-        if str(e) != "Expecting value: line 1 column 2 (char 1)":
-            print(f"Error parsing stream chunk: {str(e)}")
+        if "Expecting value" not in str(e):
+            print(f"Stream Error: {str(e)}")
         return None

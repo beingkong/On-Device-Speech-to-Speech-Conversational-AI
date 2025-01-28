@@ -214,6 +214,20 @@ def main():
         result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
         print(result)
         
+        print("\nPre-warming LLM connection...")
+        try:
+            # Initial call loads model with long TTL
+            get_ai_response(
+                messages=[{"role": "system", "content": "READY"}],
+                llm_model=settings.LLM_MODEL,
+                lm_studio_url=settings.LM_STUDIO_URL,
+                max_tokens=1,
+                temperature=0.01,
+                stream=False
+            )
+        except Exception as e:
+            print(f"Warmup completed: {str(e)}")
+
         print("\n=== Voice Chat Bot Ready ===")
         print("The bot is now listening for speech.")
         print("Just start speaking, and I'll respond automatically!")

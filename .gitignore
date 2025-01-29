@@ -11,6 +11,7 @@ examples/
 generated_audio/
 # C extensions
 *.so
+.vscode/
 
 # Distribution / packaging
 .Python

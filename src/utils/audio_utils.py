@@ -49,7 +49,7 @@ def generate_and_play_sentences(
                     interrupt_audio = audio_data
                     break
             
-            audio_data, output_path = audio_queue.get_next_audio()
+            audio_data, output_path, sentence = audio_queue.get_next_audio()
             
             if audio_data is not None:
                 if output_path:

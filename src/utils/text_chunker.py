@@ -16,6 +16,10 @@ class TextChunker:
 
     def should_process(self, text: str) -> bool:
         """Determines if current accumulated text should be processed."""
+        # More aggressive early chunking
+        if not self.found_first_sentence:
+            return any(text.endswith(p) for p in self.sentence_breaks) or len(text.split()) >= 2
+        # Keep existing adaptive logic for subsequent chunks
         words = text.split()
         current_size = len(words)
         target = settings.FIRST_SENTENCE_SIZE if not self.found_first_sentence else settings.TARGET_SIZE

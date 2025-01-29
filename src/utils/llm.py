@@ -74,11 +74,11 @@ def get_ai_response(
                     if chunk:
                         yield chunk
                     else:
-                        yield b" "
-
+                        # Send minimal silence packet instead of space
+                        yield b'\x00\x00'  # 16-bit silence sample
             except Exception as e:
                 print(f"\nError: {str(e)}")
-                yield b" "
+                yield b'\x00\x00'  # Ensure final silence
 
         return streaming_iterator()
 

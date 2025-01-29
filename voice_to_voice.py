@@ -121,23 +121,58 @@ def process_input(
                     current_sentence.append(content)
                     text = "".join(current_sentence)
 
-                    # Simplified sentence processing
-                    if len(text.split()) >= 2 and any(
-                        text.endswith(p) for p in chunker.sentence_breaks
-                    ):
-                        if any(c.isalnum() for c in text):
-                            audio_queue.add_sentences([text.strip()])
-                            complete_response.append(text.strip())
+                    # Enhanced sentence processing with priority breaks
+                    process_now = False
+                    words = text.split()
+                    word_count = len(words)
+                    
+                    # First sentence optimization
+                    if not chunker.found_first_sentence:
+                        if word_count >= 2:
+                            # Prioritize sentence breaks for first chunk
+                            if any(text.endswith(p) for p in chunker.sentence_breaks):
+                                process_now = True
+                            else:
+                                # Allow semantic breaks if no sentence break found
+                                process_now = any(
+                                    text.endswith(p) for p in chunker.semantic_breaks
+                                ) and word_count >= 2
+                    else:
+                        # Subsequent chunks use adaptive breaking
+                        process_now = (
+                            (any(text.endswith(p) for p in chunker.sentence_breaks) and word_count > settings.TARGET_SIZE//2) or
+                            (word_count > settings.TARGET_SIZE and any(
+                                text.endswith(p) for p in chunker.semantic_breaks
+                            ))
+                        )
 
-                            if not first_generation_time:
-                                first_generation_time = time.time()
-                                delta = first_generation_time - last_timing_step
-                                timing_info.append(
-                                    f"4. Audio queued: {first_generation_time - start_time:.2f}s (Δ+{delta:.2f}s)"
-                                )
-                                last_timing_step = first_generation_time
+                    if process_now and any(c.isalnum() for c in text):
+                        # Find optimal break point
+                        break_point = max(
+                            (text.rfind(p) for p in chunker.sentence_breaks),
+                            default=max(
+                                (text.rfind(p) for p in chunker.semantic_breaks),
+                                default=-1
+                            )
+                        )
+                        
+                        if break_point > 0:
+                            chunk_text = text[:break_point+1].strip()
+                            remaining_text = text[break_point+1:].strip()
+                            
+                            if chunk_text:
+                                audio_queue.add_sentences([chunk_text])
+                                complete_response.append(chunk_text)
+                                current_sentence = [remaining_text] if remaining_text else []
+                                chunker.found_first_sentence = True
 
-                            current_sentence = []
+                                if not first_generation_time:
+                                    first_generation_time = time.time()
+                                    delta = first_generation_time - last_timing_step
+                                    timing_info.append(
+                                        f"4. Audio queued: {first_generation_time - start_time:.2f}s (Δ+{delta:.2f}s)"
+                                    )
+                                    last_timing_step = first_generation_time
 
             if choice.get("finish_reason") == "stop":
                 text = "".join(current_sentence)
@@ -145,6 +180,11 @@ def process_input(
                     audio_queue.add_sentences([text])
                     complete_response.append(text)
                 break
+
+            # Add priority to first sentence generation
+            if not first_generation_time and chunker.found_first_sentence:
+                # Immediately yield to playback thread
+                time.sleep(0.01)  # Allow potential context switch
 
         messages.append({"role": "assistant", "content": " ".join(complete_response)})
         print()
@@ -192,7 +232,7 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
                 interrupt_audio = audio_data
                 break
 
-            audio_data, _ = audio_queue.get_next_audio()
+            audio_data, _, _ = audio_queue.get_next_audio()
             if audio_data is not None:
                 play_start = time.time()
                 was_interrupted, interrupt_data = play_audio_with_interrupt(audio_data)
@@ -224,6 +264,7 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
 
     except Exception as e:
         print(f"Error in audio playback: {str(e)}")
+        traceback.print_exc()
 
     return was_interrupted, interrupt_audio
 

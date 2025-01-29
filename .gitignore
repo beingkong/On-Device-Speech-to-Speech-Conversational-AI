@@ -5,6 +5,7 @@ __pycache__/
 data/models/
 output/
 test/
+test.py
 data/logs/
 examples/
 generated_audio/

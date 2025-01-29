@@ -33,16 +33,23 @@ class Settings(BaseSettings):
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
 
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
+    OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
     MAX_TOKENS: int = Field(default=4096, env="MAX_TOKENS")
+
     LM_STUDIO_TEMPERATURE: float = Field(default=0.7, env="LM_STUDIO_TEMPERATURE")
+    LLM_TTL: int = Field(default=3600, env="LLM_TTL")
+    LLM_AUTO_EVICT: bool = Field(default=False, env="LLM_AUTO_EVICT")
     LM_STUDIO_STREAM: bool = Field(default=False, env="LM_STUDIO_STREAM")
     LM_STUDIO_RETRY_DELAY: float = Field(default=0.5, env="LM_STUDIO_RETRY_DELAY")
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
-
+    LM_STUDIO_MAX_CONCURRENT: int = Field(default=3, env="LM_STUDIO_MAX_CONCURRENT")
+    LM_STUDIO_TIMEOUT: int = Field(default=300, env="LM_STUDIO_TIMEOUT")
+    LM_STUDIO_KEEP_ALIVE: int = Field(default=300, env="LM_STUDIO_KEEP_ALIVE")
     WHISPER_MODEL: str = Field(default="openai/whisper-tiny.en", env="WHISPER_MODEL")
     
+
     VAD_MODEL: str = Field(default="pyannote/segmentation-3.0", env="VAD_MODEL")
     VAD_MIN_DURATION_ON: float = Field(default=0.1, env="VAD_MIN_DURATION_ON")
     VAD_MIN_DURATION_OFF: float = Field(default=0.1, env="VAD_MIN_DURATION_OFF")

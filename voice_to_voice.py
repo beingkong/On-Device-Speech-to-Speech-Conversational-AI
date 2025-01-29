@@ -2,6 +2,7 @@ import os
 import msvcrt
 import traceback
 import time
+import requests
 import torch
 import logging
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
@@ -22,30 +23,35 @@ import inspect
 settings.setup_directories()
 logger = logging.getLogger('voice_chat')
 
-def process_input(user_input: str, messages: list, generator: VoiceGenerator, speed: float, 
+def process_input(session: requests.Session, user_input: str, messages: list, generator: VoiceGenerator, speed: float, 
                   process_start_time: float, vad_time: float, transcribe_time: float) -> tuple[bool, None]:
     """Processes user input with timing parameters"""
     start_time = process_start_time
     messages.append({"role": "user", "content": user_input})
     
+
     try:
         timing_info = []
         complete_response = []
         
         # Initialize with VAD and transcription times
         timing_info.append(f"0. User stopped speaking: {0:.2f}s (Δ+0.00s)")
-        timing_info.append(f"1. VAD started: {vad_time:.2f}s (Δ+{vad_time - start_time:.2f}s)")
-        timing_info.append(f"2. Transcription started: {transcribe_time:.2f}s (Δ+{transcribe_time - vad_time:.2f}s)")
+        timing_info.append(f"1. VAD started: {vad_time:.2f}s (Δ+{vad_time:.2f}s)")
+        timing_info.append(f"2. Transcription started: {(transcribe_time - vad_time):.2f}s (Δ+{transcribe_time - vad_time:.2f}s)")
+
+
         last_timing_step = start_time + vad_time + transcribe_time
         
         llm_start = time.time()
         response_stream = get_ai_response(
+            session=session,
             messages=messages,
             llm_model=settings.LLM_MODEL,
             lm_studio_url=settings.LM_STUDIO_URL,
             max_tokens=settings.MAX_TOKENS,
             temperature=settings.LM_STUDIO_TEMPERATURE,
             stream=True
+
         )
         
         if not response_stream:
@@ -54,9 +60,10 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
             
         llm_first_token_time = time.time()
         delta = llm_first_token_time - last_timing_step
-        timing_info.append(f"3. LLM processing started: {llm_first_token_time - start_time:.2f}s (Δ+{delta:.2f}s)")
+        timing_info.append(f"3. LLM processing started: {(llm_first_token_time - start_time):.2f}s (Δ+{delta:.2f}s)")
         last_timing_step = llm_first_token_time
             
+
         audio_queue = AudioGenerationQueue(generator, speed)
         audio_queue.start()
         chunker = TextChunker()
@@ -82,6 +89,9 @@ def process_input(user_input: str, messages: list, generator: VoiceGenerator, sp
         playback_thread.start()
         
         for chunk in response_stream:
+            # Add heartbeat every 2 seconds
+            if time.time() - last_timing_step > 2:
+                chunk += b' '  # Add empty space to keep connection alive
             data = parse_stream_chunk(chunk)
             if not data or "choices" not in data:
                 continue
@@ -216,7 +226,7 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
                     current_time = time.time()
                     elapsed = current_time - timing_data['start_time']
                     delta = current_time - timing_data['last_step']
-                    timing_info.append(f"6. First audio play: {elapsed:.2f}s (Δ+{delta:.2f}s)")
+                    timing_info.append(f"6. First audio playback completed: {elapsed:.2f}s (Δ+{delta:.2f}s)")
                     timing_data['last_step'] = current_time
                 if was_interrupted:
                     interrupt_audio = interrupt_data
@@ -234,9 +244,21 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
 
 def main():
     """Main function to run the voice chat bot."""
+    session = None  # Will be properly initialized in the loop
+    generator = None
+    
     try:
+        # Persistent session outside the loop
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=100,
+            max_retries=3
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+
         generator = VoiceGenerator(settings.MODELS_DIR, settings.VOICES_DIR)
-        
         print("\nInitializing Whisper model...")
         whisper_processor = WhisperProcessor.from_pretrained(settings.WHISPER_MODEL)
         whisper_model = WhisperForConditionalGeneration.from_pretrained(settings.WHISPER_MODEL)
@@ -283,6 +305,7 @@ def main():
                         if user_input.strip():
                             print(f"You (voice): {user_input}")
                             was_interrupted, speech_data = process_input(
+                                session=session,
                                 user_input=user_input,
                                 messages=messages,
                                 generator=generator,
@@ -305,9 +328,16 @@ def main():
                                     user_input = transcribe_audio(whisper_processor, whisper_model, speech_segments)
                                     if user_input.strip():
                                         print(f"You (voice): {user_input}")
-                                        process_input(user_input, messages, generator, speed, time.time())
+                                        process_input(session, user_input, messages, generator, speed, time.time())
                     else:
                         print("No clear speech detected, please try again.")
+                
+                # Add connection maintenance
+                if session is not None:
+                    # Reset connection pool between interactions
+                    session.headers.update({'Connection': 'keep-alive'})
+                    if hasattr(session, 'connection_pool'):
+                        session.connection_pool.clear()
                 
             except KeyboardInterrupt:
                 print("\nStopping...")
@@ -316,10 +346,12 @@ def main():
                 print(f"Error: {str(e)}")
                 continue
                 
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        print("\nFull traceback:")
-        traceback.print_exc()
+    finally:
+        # Clean up resources
+        if session:
+            session.close()
+        if generator:
+            generator.cleanup()
 
 if __name__ == "__main__":
     main()

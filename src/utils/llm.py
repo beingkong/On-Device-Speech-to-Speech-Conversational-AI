@@ -1,74 +1,87 @@
 import re
 import requests
 import json
+import time
 
 def filter_response(response: str) -> str:
-    """Remove markdown and emojis from a string.
-
-    Args:
-        response: The string to filter.
-
-    Returns:
-        The filtered string.
-    """
     response = re.sub(r'\*\*|__|~~|`', '', response)
     response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)
     return response
 
-def get_ai_response(messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, temperature: float = 0.7, stream: bool = False):
-    """Get response from LM Studio API.
-
-    Args:
-        messages: A list of message dictionaries.
-        llm_model: The name of the LLM model.
-        lm_studio_url: The URL of the LM Studio API.
-        max_tokens: The maximum number of tokens to generate.
-        temperature: The sampling temperature.
-        stream: Whether to stream the response.
-
-    Returns:
-        The response from the API, either as an iterator of lines or a string.
-    """
-    try:
-        response = requests.post(
-            f"{lm_studio_url}/chat/completions",
-            json={
-                "messages": messages,
-                "model": llm_model,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": stream
-            },
-            headers={"Content-Type": "application/json"},
-            stream=stream
-        )
-        response.raise_for_status()
-        
-        if stream:
-            return response.iter_lines()
-        else:
-            return response.json()["choices"][0]["message"]["content"]
+def get_ai_response(session: requests.Session, messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, temperature: float = 0.7, stream: bool = False):
+    attempt = 0
+    max_retries = 3
+    
+    session.headers.update({
+        "X-LM-Studio-Retries": str(max_retries),
+        "X-LM-Studio-Client-Timeout": "120s"
+    })
+    
+    while attempt < max_retries:
+        try:
+            response = session.post(
+                f"{lm_studio_url}/chat/completions",
+                json={
+                    "messages": messages,
+                    "model": llm_model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": stream,
+                    "seed": 42,
+                    "gpu_layers": 33,
+                    "n_parallel": 3,
+                    "keep_alive": "5m",
+                    "context_overlap": 128
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Connection": "keep-alive",
+                    "Keep-Alive": f"timeout={60*5}, max=1000"
+                },
+                stream=stream,
+                timeout=(10.0, 60)
+            )
             
-    except requests.RequestException as e:
-        print(f"Error communicating with LM Studio: {str(e)}")
-        return None
+            if response.raw.connection and response.raw.connection.is_closed:
+                raise requests.RequestException("Connection closed unexpectedly")
+                
+            response.raise_for_status()
+            
+            if stream:
+                def streaming_iterator():
+                    try:
+                        for chunk in response.iter_content(chunk_size=512):
+                            if chunk:
+                                yield chunk
+                            else:
+                                yield b' '
+                    finally:
+                        session.headers.update({'Connection': 'keep-alive'})
+                return streaming_iterator()
+                
+            else:
+                return response.json()["choices"][0]["message"]["content"]
+                
+        except (requests.ConnectionError, requests.Timeout) as e:
+            print(f"Connection error (attempt {attempt+1}/{max_retries}): {str(e)}")
+            attempt += 1
+            time.sleep(1.5 ** attempt)
+            continue
+            
+    print("Max retries exceeded")
+    return None
 
-def parse_stream_chunk(chunk: bytes) -> dict | None:
-    """Parse a chunk from the stream into a response object.
-
-    Args:
-        chunk: The chunk of data from the stream.
-
-    Returns:
-        A dictionary representing the parsed chunk, or None if parsing fails.
-    """
+def parse_stream_chunk(chunk: bytes) -> dict:
+    """Handle empty chunks safely"""
     if not chunk:
-        return None
+        return {"keep_alive": True}  # Default value for empty chunks
         
     try:
         text = chunk.decode('utf-8').strip()
-        
-        if text == '[DONE]' or text == 'data: [DONE]':
+        if text.startswith('data: '):
+            text = text[6:]
+            
+        if text == '[DONE]':
             return {
                 "choices": [{
                     "finish_reason": "stop",
@@ -76,48 +89,20 @@ def parse_stream_chunk(chunk: bytes) -> dict | None:
                 }]
             }
             
-        if text.startswith('data: '):
-            text = text[6:]
-            
-        text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-            
-        try:
+        if text.startswith('{'):
             data = json.loads(text)
-            
-            if "choices" in data and len(data["choices"]) > 0:
+            if "choices" in data and data["choices"]:
                 choice = data["choices"][0]
-                if "delta" in choice:
-                    if "content" in choice["delta"]:
-                        choice["delta"]["content"] = filter_response(choice["delta"]["content"])
-                    return data
-                elif "message" in choice:
-                    if "content" in choice["message"]:
-                        choice["message"]["content"] = filter_response(choice["message"]["content"])
+                content = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
+                if content:
                     return {
                         "choices": [{
-                            "delta": choice["message"]
+                            "delta": {
+                                "content": filter_response(content)
+                            }
                         }]
                     }
-                elif "finish_reason" in choice:
-                    return {
-                        "choices": [{
-                            "finish_reason": choice["finish_reason"],
-                            "delta": {}
-                        }]
-                    }
-            return data
-            
-        except json.JSONDecodeError as e:
-            if text and not text.startswith('{') and not text.startswith('['):
-                filtered_text = filter_response(text)
-                return {
-                    "choices": [{
-                        "delta": {
-                            "content": filtered_text
-                        }
-                    }]
-                }
-            raise e
+        return None
             
     except Exception as e:
         if str(e) != "Expecting value: line 1 column 2 (char 1)":

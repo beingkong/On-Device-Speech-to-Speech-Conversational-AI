@@ -50,10 +50,7 @@ def get_ai_response(
             llm_url,
             json={
                 "model": llm_model,
-                "messages": [
-                    {"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT},
-                    {"role": "user", "content": messages[-1]["content"]},
-                ],
+                "messages": messages,
                 "options": {
                     "num_ctx": settings.TARGET_SIZE,  # Reduced context window
                     "num_thread": 4,  # Optimal for most CPUs

@@ -27,7 +27,8 @@ from src.utils.llm import parse_stream_chunk, warmup_llm
 import threading
 from src.utils.text_chunker import TextChunker
 import inspect
-
+MODEL = "huihui_ai/qwen2.5-abliterate:0.5b-instruct-q8_0"
+URL = "http://localhost:11434/api/chat"
 settings.setup_directories()
 logger = logging.getLogger("voice_chat")
 
@@ -60,8 +61,6 @@ def process_input(
         )
 
         last_timing_step = start_time + vad_time + transcribe_time
-
-        # Pre-initialize audio queue and chunker before LLM call
         audio_queue = AudioGenerationQueue(generator, speed)
         audio_queue.start()
         chunker = TextChunker()
@@ -71,13 +70,13 @@ def process_input(
         response_stream = get_ai_response(
             session=session,
             messages=messages,
-            llm_model="smollm:360m-instruct-v0.2-q8_0",
-            llm_url="http://localhost:11434/api/chat",
+            llm_model=MODEL,
+            llm_url=URL,
             max_tokens=min(
                 settings.MAX_TOKENS, 512
-            ),  # Limit context for faster response
+            ), 
             temperature=settings.LLM_TEMPERATURE,
-            stream=True,  # Force streaming for faster first token
+            stream=True,
         )
 
         if not response_stream:
@@ -305,8 +304,8 @@ def main():
             print("Warming up LLM...")
             _ = warmup_llm(
                 session=session,
-                llm_model="smollm:360m-instruct-v0.2-q8_0",
-                llm_url="http://localhost:11434/api/chat",
+                llm_model=MODEL,
+                llm_url=URL,
             )
 
             while True:

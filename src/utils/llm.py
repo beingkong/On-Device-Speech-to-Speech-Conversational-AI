@@ -1,100 +1,110 @@
 import re
 import requests
 import json
-from src.utils.config import settings
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-# Persistent session with connection pooling
-session = requests.Session()
-adapter = HTTPAdapter(
-    pool_connections=10,
-    pool_maxsize=10,
-    max_retries=Retry(total=3, backoff_factor=0.1)
-)
-session.mount('http://', adapter)
-session.mount('https://', adapter)
+import time
 
 def filter_response(response: str) -> str:
-    """Remove markdown and emojis from a string.
-
-    Args:
-        response: The string to filter.
-
-    Returns:
-        The filtered string.
-    """
     response = re.sub(r'\*\*|__|~~|`', '', response)
     response = re.sub(r'[\U00010000-\U0010ffff]', '', response, flags=re.UNICODE)
     return response
 
-def get_ai_response(messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, 
-                   temperature: float = 0.7, stream: bool = False):
-    """Get response with streaming support and minimal overhead"""
-    try:
-        response = session.post(
-            f"{lm_studio_url}/chat/completions",
-            json={
-                "messages": messages,
-                "model": llm_model,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": stream,
-                "ttl": settings.LLM_TTL,
-                "jit": False
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Auto-Evict": str(settings.LLM_AUTO_EVICT).lower()
-            },
-            timeout=30,
-            stream=stream  # Critical for streaming performance
-        )
-        response.raise_for_status()
-        
-        if stream:
-            # Directly return the raw stream iterator
-            return (parse_stream_chunk(chunk) for chunk in response.iter_content(chunk_size=None))
-        else:
-            return response.json()["choices"][0]["message"]["content"]
-            
-    except requests.RequestException as e:
-        print(f"API Error: {str(e)}")
-        return None
-
-def parse_stream_chunk(chunk: bytes) -> dict | None:
-    """Ultra-efficient stream parser with minimal processing"""
-    try:
-        # Handle keep-alive chunks first
-        if chunk.startswith(b': ping'):
-            return None
-            
-        # Decode before processing
-        text = chunk.decode('utf-8').strip()
-        if not text:
-            return None
-            
-        # Handle completion marker
-        if text == '[DONE]':
-            return {'done': True}
-            
-        # Extract JSON payload
-        if text.startswith('data: '):
-            text = text[6:].strip()
-            
+def get_ai_response(session: requests.Session, messages: list, llm_model: str, lm_studio_url: str, max_tokens: int, temperature: float = 0.7, stream: bool = False):
+    attempt = 0
+    max_retries = 3
+    
+    session.headers.update({
+        "X-LM-Studio-Retries": str(max_retries),
+        "X-LM-Studio-Client-Timeout": "120s"
+    })
+    
+    while attempt < max_retries:
         try:
+            response = session.post(
+                f"{lm_studio_url}/chat/completions",
+                json={
+                    "messages": messages,
+                    "model": llm_model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": stream,
+                    "seed": 42,
+                    "gpu_layers": 33,
+                    "n_parallel": 3,
+                    "keep_alive": "5m",
+                    "context_overlap": 128
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Connection": "keep-alive",
+                    "Keep-Alive": f"timeout={60*5}, max=1000"
+                },
+                stream=stream,
+                timeout=(10.0, 60)
+            )
+            
+            if response.raw.connection and response.raw.connection.is_closed:
+                raise requests.RequestException("Connection closed unexpectedly")
+                
+            response.raise_for_status()
+            
+            if stream:
+                def streaming_iterator():
+                    try:
+                        for chunk in response.iter_content(chunk_size=512):
+                            if chunk:
+                                yield chunk
+                            else:
+                                yield b' '
+                    finally:
+                        session.headers.update({'Connection': 'keep-alive'})
+                return streaming_iterator()
+                
+            else:
+                return response.json()["choices"][0]["message"]["content"]
+                
+        except (requests.ConnectionError, requests.Timeout) as e:
+            print(f"Connection error (attempt {attempt+1}/{max_retries}): {str(e)}")
+            attempt += 1
+            time.sleep(1.5 ** attempt)
+            continue
+            
+    print("Max retries exceeded")
+    return None
+
+def parse_stream_chunk(chunk: bytes) -> dict:
+    """Handle empty chunks safely"""
+    if not chunk:
+        return {"keep_alive": True}  # Default value for empty chunks
+        
+    try:
+        text = chunk.decode('utf-8').strip()
+        if text.startswith('data: '):
+            text = text[6:]
+            
+        if text == '[DONE]':
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "delta": {}
+                }]
+            }
+            
+        if text.startswith('{'):
             data = json.loads(text)
             if "choices" in data and data["choices"]:
                 choice = data["choices"][0]
-                content = (choice.get("delta") or choice.get("message", {})).get("content", "")
-                return {
-                    "content": content.translate(str.maketrans('', '', '*_~`')),
-                    "done": choice.get("finish_reason") == "stop"
-                }
-        except json.JSONDecodeError:
-            return {"content": text.translate(str.maketrans('', '', '*_~`')), "done": False}
+                content = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
+                if content:
+                    return {
+                        "choices": [{
+                            "delta": {
+                                "content": filter_response(content)
+                            }
+                        }]
+                    }
+        return None
             
     except Exception as e:
-        if "Expecting value" not in str(e):
-            print(f"Stream Error: {str(e)}")
+        if str(e) != "Expecting value: line 1 column 2 (char 1)":
+            print(f"Error parsing stream chunk: {str(e)}")
         return None

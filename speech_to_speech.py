@@ -20,8 +20,6 @@ from src.utils.llm import parse_stream_chunk
 import threading
 from src.utils.text_chunker import TextChunker
 
-MODEL = settings.LLM_MODEL
-URL = settings.OLLAMA_URL
 settings.setup_directories()
 timing_info = {
     "vad_start": None,
@@ -55,8 +53,8 @@ def process_input(
         response_stream = get_ai_response(
             session=session,
             messages=messages,
-            llm_model=MODEL,
-            llm_url=URL,
+            llm_model=settings.LLM_MODEL,
+            llm_url=settings.OLLAMA_URL,
             max_tokens=settings.MAX_TOKENS,
             stream=True,
         )
@@ -196,19 +194,7 @@ def main():
             print("\nInitializing voice generator...")
             result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
             print(result)
-
             messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
-            messages.append({"role": "user", "content": "Hi!"})
-            print("\n===Initializing Language Model===")
-            response_stream = get_ai_response(
-                session=session,
-                messages=messages,
-                llm_model=MODEL,
-                llm_url=URL,
-                max_tokens=2,
-                stream=False,
-            )
-
             print("\n\n=== Voice Chat Bot Ready ===")
             print("The bot is now listening for speech.")
             print("Just start speaking, and I'll respond automatically!")

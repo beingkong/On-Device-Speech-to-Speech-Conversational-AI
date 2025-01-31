@@ -40,9 +40,19 @@ def process_input(
     generator: VoiceGenerator,
     speed: float,
 ) -> tuple[bool, None]:
-    """Processes user input, generates a response, and handles audio output."""
+    """Processes user input, generates a response, and handles audio output.
+
+    Args:
+        session (requests.Session): The requests session to use.
+        user_input (str): The user's input text.
+        messages (list): The list of messages to send to the LLM.
+        generator (VoiceGenerator): The voice generator object.
+        speed (float): The playback speed.
+
+    Returns:
+        tuple[bool, None]: A tuple containing a boolean indicating if the process was interrupted and None.
+    """
     global timing_info
-    # Reset timing at start of processing
     timing_info = {k: None for k in timing_info}
     timing_info["vad_start"] = time.perf_counter()
 
@@ -68,14 +78,12 @@ def process_input(
         chunker = TextChunker()
         complete_response = []
 
-        # Start audio playback thread
         playback_thread = threading.Thread(
             target=lambda: audio_playback_worker(audio_queue)
         )
         playback_thread.daemon = True
         playback_thread.start()
 
-        # Process streaming response
         for chunk in response_stream:
             data = parse_stream_chunk(chunk)
             if not data or "choices" not in data:
@@ -112,7 +120,6 @@ def process_input(
         audio_queue.stop()
         playback_thread.join()
 
-        # Add playback timing
         def playback_wrapper():
             timing_info["playback_start"] = time.perf_counter()
             result = audio_playback_worker(audio_queue)
@@ -120,7 +127,6 @@ def process_input(
 
         playback_thread = threading.Thread(target=playback_wrapper)
 
-        # Final timing point
         timing_info["end"] = time.perf_counter()
         print_timing_chart(timing_info)
         return False, None
@@ -133,7 +139,14 @@ def process_input(
 
 
 def audio_playback_worker(audio_queue) -> tuple[bool, None]:
-    """Manages audio playback in a separate thread, handling interruptions."""
+    """Manages audio playback in a separate thread, handling interruptions.
+
+    Args:
+        audio_queue (AudioGenerationQueue): The audio queue object.
+
+    Returns:
+        tuple[bool, None]: A tuple containing a boolean indicating if the playback was interrupted and the interrupt audio data.
+    """
     global timing_info
     was_interrupted = False
     interrupt_audio = None
@@ -148,7 +161,6 @@ def audio_playback_worker(audio_queue) -> tuple[bool, None]:
 
             audio_data, _ = audio_queue.get_next_audio()
             if audio_data is not None:
-                # Record first audio playback time
                 if not timing_info["first_audio_play"]:
                     timing_info["first_audio_play"] = time.perf_counter()
 
@@ -219,14 +231,12 @@ def main():
 
                         if speech_segments is not None:
                             print("\nTranscribing detected speech...")
-                            # Start transcription timing
                             timing_info["transcription_start"] = time.perf_counter()
 
                             user_input = transcribe_audio(
                                 whisper_processor, whisper_model, speech_segments
                             )
 
-                            # Capture transcription duration
                             timing_info["transcription_duration"] = (
                                 time.perf_counter() - timing_info["transcription_start"]
                             )
@@ -258,7 +268,6 @@ def main():
                         else:
                             print("No clear speech detected, please try again.")
                     if session is not None:
-                        # Reset connection pool between interactions
                         session.headers.update({"Connection": "keep-alive"})
                         if hasattr(session, "connection_pool"):
                             session.connection_pool.clear()

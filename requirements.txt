@@ -4,17 +4,13 @@ transformers
 scipy
 munch
 sounddevice
-fastapi
-uvicorn
 python-multipart
 soundfile
 pydantic
 requests
-aiohttp
 python-dotenv
 numpy
 pyaudio
-datasets
 pyannote.audio
 torch_audiomentations
 pydantic_settings

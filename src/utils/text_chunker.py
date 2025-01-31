@@ -8,17 +8,21 @@ class TextChunker:
         self.current_text = []
         self.found_first_sentence = False
         self.semantic_breaks = {
-            # Strong breaks (priority 4)
             'however': 4, 'therefore': 4, 'furthermore': 4, 'moreover': 4, 'nevertheless': 4,
-            # Medium breaks (priority 3)
             'while': 3, 'although': 3, 'unless': 3, 'since': 3,
-            # Basic connectors (priority 2)
             'and': 2, 'but': 2, 'because': 2, 'then': 2,
         }
         self.punctuation_priorities = {'.': 5, '!': 5, '?': 5, ';': 4, ':': 4, ',': 3, '-': 2}
         
     def should_process(self, text: str) -> bool:
-        """Determines if text should be processed based on length or punctuation."""
+        """Determines if text should be processed based on length or punctuation.
+        
+        Args:
+            text (str): The text to check.
+        
+        Returns:
+            bool: True if the text should be processed, False otherwise.
+        """
         if any(text.endswith(p) for p in self.punctuation_priorities):
             return True
             
@@ -27,17 +31,23 @@ class TextChunker:
         return len(words) >= target
         
     def find_break_point(self, words: list, target_size: int) -> int:
-        """Finds optimal break point in text."""
+        """Finds optimal break point in text.
+        
+        Args:
+            words (list): The list of words to find a break point in.
+            target_size (int): The target size of the chunk.
+        
+        Returns:
+            int: The index of the break point.
+        """
         if len(words) <= target_size:
             return len(words)
             
         break_points = []
         
-        # Single pass to collect all break points
         for i, word in enumerate(words[:target_size + 3]):
             word_lower = word.lower()
             
-            # Check punctuation and semantic breaks in one pass
             priority = self.semantic_breaks.get(word_lower, 0)
             for punct, punct_priority in self.punctuation_priorities.items():
                 if word.endswith(punct):
@@ -49,12 +59,19 @@ class TextChunker:
         if not break_points:
             return target_size
             
-        # Sort once and take best break point
         break_points.sort(key=lambda x: (x[1], x[2]), reverse=True)
         return break_points[0][0] + 1
         
     def process(self, text: str, audio_queue) -> str:
-        """Process text chunk and return remaining text."""
+        """Process text chunk and return remaining text.
+        
+        Args:
+            text (str): The text to process.
+            audio_queue: The audio queue to add sentences to.
+        
+        Returns:
+            str: The remaining text after processing.
+        """
         if not text:
             return ""
             

@@ -54,7 +54,6 @@ def get_ai_response(
                 "options": {
                     "num_ctx": settings.TARGET_SIZE,  # Reduced context window
                     "num_thread": 4,  # Optimal for most CPUs
-                    "temperature": settings.LLM_TEMPERATURE,
                     "repeat_penalty": 1.0,
                     "stop": ["\n"],  # Stop at newlines
                 },
@@ -72,10 +71,10 @@ def get_ai_response(
                         yield chunk
                     else:
                         # Send minimal silence packet instead of space
-                        yield b'\x00\x00'  # 16-bit silence sample
+                        yield b"\x00\x00"  # 16-bit silence sample
             except Exception as e:
                 print(f"\nError: {str(e)}")
-                yield b'\x00\x00'  # Ensure final silence
+                yield b"\x00\x00"  # Ensure final silence
 
         return streaming_iterator()
 
@@ -86,19 +85,16 @@ def get_ai_response(
 def parse_stream_chunk(chunk: bytes) -> dict:
     """Handle empty chunks safely"""
     if not chunk:
-        return {"keep_alive": True}  # Default value for empty chunks
-
+        return {"keep_alive": True}
+    
     try:
         text = chunk.decode("utf-8").strip()
         if text.startswith("data: "):
             text = text[6:]
-
         if text == "[DONE]":
             return {"choices": [{"finish_reason": "stop", "delta": {}}]}
-
         if text.startswith("{"):
             data = json.loads(text)
-            # Handle both streaming and final message formats
             content = ""
             if "message" in data:
                 content = data["message"].get("content", "")

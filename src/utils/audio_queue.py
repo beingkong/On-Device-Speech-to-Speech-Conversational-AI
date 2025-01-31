@@ -51,7 +51,6 @@ class AudioGenerationQueue:
         self.sentences_processed = 0
         self.audio_generated = 0
         self.failed_sentences = []
-        self.processed_sentences = set()
         
     def start(self):
         """
@@ -83,20 +82,23 @@ class AudioGenerationQueue:
             logging.info(f"\nAudio Generation Complete - Processed: {self.sentences_processed}, Generated: {self.audio_generated}, Failed: {len(self.failed_sentences)}")
             
     def add_sentences(self, sentences: List[str]):
-        """Add sentences ensuring no duplicates"""
+        """
+        Add a list of sentences to the generation queue.
+
+        Args:
+            sentences: List of text strings to be converted to audio
+        """
         added_count = 0
-        with self.lock:
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if sentence and sentence not in self.processed_sentences:
-                    self.sentence_queue.put(sentence)
-                    self.processed_sentences.add(sentence)
-                    added_count += 1
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence:
+                self.sentence_queue.put(sentence)
+                added_count += 1
                 
         if not self.is_running:
             self.start()
             
-    def get_next_audio(self) -> Tuple[Optional[np.ndarray], Optional[Path], Optional[str]]:
+    def get_next_audio(self) -> Tuple[Optional[np.ndarray], Optional[Path]]:
         """
         Retrieve the next generated audio segment from the queue.
 
@@ -104,13 +106,12 @@ class AudioGenerationQueue:
             Tuple containing:
                 - numpy array of audio data (or None if queue is empty)
                 - Path object for the saved audio file (or None if queue is empty)
-                - Sentence text (or None if queue is empty)
         """
         try:
-            audio_data, output_path, sentence = self.audio_queue.get_nowait()
-            return audio_data, output_path, sentence
+            audio_data, output_path = self.audio_queue.get_nowait()
+            return audio_data, output_path
         except:
-            return None, None, None
+            return None, None
             
     def clear_queues(self):
         """
@@ -160,7 +161,7 @@ class AudioGenerationQueue:
                     output_path = save_audio_file(audio_data, self.output_dir)
                     self.audio_generated += 1
                     
-                    self.audio_queue.put((audio_data, output_path, sentence))
+                    self.audio_queue.put((audio_data, output_path))
                     
                 except Exception as e:
                     error_msg = str(e)

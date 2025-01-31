@@ -116,6 +116,8 @@ class VoiceGenerator:
                     raise ValueError(f"Error generating audio for text: {text}. Error: {str(e)}")
 
             sentences = split_into_sentences(text)
+            if not sentences:
+                return (None, []) if not return_chunks else ([], [])
 
             audio_segments = []
             phonemes_list = []
@@ -136,7 +138,6 @@ class VoiceGenerator:
                     else:
                         failed_sentences.append((i, sentence, "Generated audio is empty"))
                 except Exception as e:
-                    print(f"❌ Failed sentence {i+1}: '{sentence}'")
                     failed_sentences.append((i, sentence, str(e)))
                     continue
             
@@ -153,7 +154,3 @@ class VoiceGenerator:
             
         except Exception as e:
             raise ValueError(f"Error in audio generation: {str(e)}")
-
-    def generate_audio(self, text, **kwargs):
-        audio_data, phonemes = self.generate(text, **kwargs)
-        return audio_data

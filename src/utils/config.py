@@ -1,18 +1,13 @@
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-import logging
 
 load_dotenv()
 
-
 def init_espeak():
     """Initialize eSpeak environment variables. Must be called before any other imports."""
-    os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = (
-        r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
-    )
+    os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
-
 
 init_espeak()
 
@@ -20,15 +15,13 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import Optional
 
-
 class Settings(BaseSettings):
     """Settings class to manage application configurations."""
-
     BASE_DIR: Path = Path(__file__).parent.parent.parent
-    MODELS_DIR: Path = BASE_DIR / "data" / "models"
-    VOICES_DIR: Path = BASE_DIR / "data" / "voices"
-    OUTPUT_DIR: Path = BASE_DIR / "output"
-    RECORDINGS_DIR: Path = BASE_DIR / "recordings"
+    MODELS_DIR: Path = BASE_DIR / 'data' / 'models'
+    VOICES_DIR: Path = BASE_DIR / 'data' / 'voices'
+    OUTPUT_DIR: Path = BASE_DIR / 'output'
+    RECORDINGS_DIR: Path = BASE_DIR / 'recordings'
 
     ESPEAK_LIBRARY_PATH: str = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     ESPEAK_PATH: str = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
@@ -39,25 +32,16 @@ class Settings(BaseSettings):
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
 
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
-    OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
     MAX_TOKENS: int = Field(default=4096, env="MAX_TOKENS")
-
-    LLM_TEMPERATURE: float = Field(default=0.7, env="LLM_TEMPERATURE")
-    LLM_TTL: int = Field(default=3600, env="LLM_TTL")
-    LLM_AUTO_EVICT: bool = Field(default=False, env="LLM_AUTO_EVICT")
-
-    LLM_STREAM: bool = Field(default=False, env="LLM_STREAM")
-    LLM_RETRY_DELAY: float = Field(default=0.5, env="LLM_RETRY_DELAY")
+    LM_STUDIO_TEMPERATURE: float = Field(default=0.7, env="LM_STUDIO_TEMPERATURE")
+    LM_STUDIO_STREAM: bool = Field(default=False, env="LM_STUDIO_STREAM")
+    LM_STUDIO_RETRY_DELAY: float = Field(default=0.5, env="LM_STUDIO_RETRY_DELAY")
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
 
-    LLM_MAX_CONCURRENT: int = Field(default=3, env="LLM_MAX_CONCURRENT")
-    LLM_TIMEOUT: int = Field(default=300, env="LLM_TIMEOUT")
-    LLM_KEEP_ALIVE: int = Field(default=300, env="LLM_KEEP_ALIVE")
-
     WHISPER_MODEL: str = Field(default="openai/whisper-tiny.en", env="WHISPER_MODEL")
-
+    
     VAD_MODEL: str = Field(default="pyannote/segmentation-3.0", env="VAD_MODEL")
     VAD_MIN_DURATION_ON: float = Field(default=0.1, env="VAD_MIN_DURATION_ON")
     VAD_MIN_DURATION_OFF: float = Field(default=0.1, env="VAD_MIN_DURATION_OFF")
@@ -69,7 +53,7 @@ class Settings(BaseSettings):
     OUTPUT_SAMPLE_RATE: int = Field(default=24000, env="OUTPUT_SAMPLE_RATE")
     RECORD_DURATION: int = Field(default=5, env="RECORD_DURATION")
     SILENCE_THRESHOLD: float = Field(default=0.01, env="SILENCE_THRESHOLD")
-    MAX_SILENCE_DURATION: float = Field(default=1, env="MAX_SILENCE_DURATION")
+    MAX_SILENCE_DURATION: int = Field(default=1, env="MAX_SILENCE_DURATION")
     SPEECH_CHECK_TIMEOUT: float = Field(default=0.1, env="SPEECH_CHECK_TIMEOUT")
     SPEECH_CHECK_THRESHOLD: float = Field(default=0.02, env="SPEECH_CHECK_THRESHOLD")
     ROLLING_BUFFER_TIME: float = Field(default=0.5, env="ROLLING_BUFFER_TIME")
@@ -84,53 +68,32 @@ class Settings(BaseSettings):
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Setup logging
-        log_dir = os.path.join(os.path.dirname(self.MODELS_DIR), "logs")
-        os.makedirs(log_dir, exist_ok=True)
-
-        log_file = os.path.join(log_dir, "timing.log")
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s\n%(message)s\n",
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.NullHandler(),  # Don't output to console
-            ],
-        )
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
 
-
 settings = Settings()
 
-
 def configure_logging():
-    """Configure logging to suppress all logs except our timing logs"""
+    """Configure logging to suppress all logs"""
     import logging
     import warnings
-
-    warnings.filterwarnings("ignore")
-
-    # Create and configure our timing logger first
-    timing_logger = logging.getLogger("voice_chat")
-    timing_logger.setLevel(logging.INFO)
-
-    # Then suppress all other logs
+    
+    warnings.filterwarnings('ignore')
+    
     logging.getLogger().setLevel(logging.ERROR)
-    logging.getLogger("urllib3").setLevel(logging.ERROR)
-    logging.getLogger("PIL").setLevel(logging.ERROR)
-    logging.getLogger("matplotlib").setLevel(logging.ERROR)
-    logging.getLogger("torch").setLevel(logging.ERROR)
-    logging.getLogger("tensorflow").setLevel(logging.ERROR)
-    logging.getLogger("whisper").setLevel(logging.ERROR)
-    logging.getLogger("transformers").setLevel(logging.ERROR)
-    logging.getLogger("pyannote").setLevel(logging.ERROR)
-    logging.getLogger("sounddevice").setLevel(logging.ERROR)
-    logging.getLogger("soundfile").setLevel(logging.ERROR)
-    logging.getLogger("uvicorn").setLevel(logging.ERROR)
-    logging.getLogger("fastapi").setLevel(logging.ERROR)
-
+    
+    logging.getLogger('urllib3').setLevel(logging.ERROR)
+    logging.getLogger('PIL').setLevel(logging.ERROR)
+    logging.getLogger('matplotlib').setLevel(logging.ERROR)
+    logging.getLogger('torch').setLevel(logging.ERROR)
+    logging.getLogger('tensorflow').setLevel(logging.ERROR)
+    logging.getLogger('whisper').setLevel(logging.ERROR)
+    logging.getLogger('transformers').setLevel(logging.ERROR)
+    logging.getLogger('pyannote').setLevel(logging.ERROR)
+    logging.getLogger('sounddevice').setLevel(logging.ERROR)
+    logging.getLogger('soundfile').setLevel(logging.ERROR)
+    logging.getLogger('uvicorn').setLevel(logging.ERROR)
+    logging.getLogger('fastapi').setLevel(logging.ERROR)
 
 configure_logging()

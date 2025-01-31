@@ -1,36 +1,38 @@
-import os
 import msvcrt
 import traceback
 import time
 import requests
-import torch
-import logging
+import time
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 from src.utils.config import settings
 from src.utils import (
     VoiceGenerator,
-    split_into_sentences,
-    filter_response,
     get_ai_response,
     play_audio_with_interrupt,
-    handle_commands,
     init_vad_pipeline,
     detect_speech_segments,
-    record_audio,
     record_continuous_audio,
     check_for_speech,
     transcribe_audio,
-    generate_and_play_sentences,
 )
 from src.utils.audio_queue import AudioGenerationQueue
-from src.utils.llm import parse_stream_chunk, warmup_llm
+from src.utils.llm import parse_stream_chunk
 import threading
 from src.utils.text_chunker import TextChunker
-import inspect
-MODEL = "huihui_ai/qwen2.5-abliterate:0.5b-instruct-q8_0"
+
+MODEL = "llama3.2:1b-instruct-q8_0"
 URL = "http://localhost:11434/api/chat"
 settings.setup_directories()
-logger = logging.getLogger("voice_chat")
+timing_info = {
+    "vad_start": None,
+    "transcription_start": None,
+    "llm_first_token": None,
+    "audio_queued": None,
+    "first_audio_play": None,
+    "playback_start": None,
+    "end": None,
+    "transcription_duration": None,
+}
 
 
 def process_input(
@@ -39,43 +41,23 @@ def process_input(
     messages: list,
     generator: VoiceGenerator,
     speed: float,
-    process_start_time: float,
-    vad_time: float,
-    transcribe_time: float,
 ) -> tuple[bool, None]:
-    """Processes user input with timing parameters"""
-    start_time = process_start_time
+    """Processes user input, generates a response, and handles audio output."""
+    global timing_info
+    # Reset timing at start of processing
+    timing_info = {k: None for k in timing_info}
+    timing_info["vad_start"] = time.perf_counter()
+
     messages.append({"role": "user", "content": user_input})
-
+    print("\nThinking...")
+    start_time = time.time()
     try:
-        # Clear previous empty assistant responses
-        messages = [msg for msg in messages if msg["content"].strip() != ""]
-        timing_info = []
-        complete_response = []
-
-        # Initialize with VAD and transcription times
-        timing_info.append(f"0. User stopped speaking: {0:.2f}s (Δ+0.00s)")
-        timing_info.append(f"1. VAD started: {vad_time:.2f}s (Δ+{vad_time:.2f}s)")
-        timing_info.append(
-            f"2. Transcription started: {(transcribe_time - vad_time):.2f}s (Δ+{transcribe_time - vad_time:.2f}s)"
-        )
-
-        last_timing_step = start_time + vad_time + transcribe_time
-        audio_queue = AudioGenerationQueue(generator, speed)
-        audio_queue.start()
-        chunker = TextChunker()
-
-        # Optimize LLM call
-        llm_start = time.time()
         response_stream = get_ai_response(
             session=session,
             messages=messages,
             llm_model=MODEL,
             llm_url=URL,
-            max_tokens=min(
-                settings.MAX_TOKENS, 512
-            ), 
-            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=settings.MAX_TOKENS,
             stream=True,
         )
 
@@ -83,21 +65,19 @@ def process_input(
             print("Failed to get AI response stream.")
             return False, None
 
-        # Start playback thread immediately
-        timing_data = {"start_time": start_time, "last_step": last_timing_step}
+        audio_queue = AudioGenerationQueue(generator, speed)
+        audio_queue.start()
+        chunker = TextChunker()
+        complete_response = []
 
+        # Start audio playback thread
         playback_thread = threading.Thread(
-            target=audio_playback_worker,
-            args=(audio_queue, timing_info, timing_data),
-            daemon=True,
+            target=lambda: audio_playback_worker(audio_queue)
         )
+        playback_thread.daemon = True
         playback_thread.start()
 
-        # Optimize streaming processing
-        first_token_received = False
-        current_sentence = []
-        first_generation_time = None
-
+        # Process streaming response
         for chunk in response_stream:
             data = parse_stream_chunk(chunk)
             if not data or "choices" not in data:
@@ -107,83 +87,25 @@ def process_input(
             if "delta" in choice and "content" in choice["delta"]:
                 content = choice["delta"]["content"]
                 if content:
-                    if not first_token_received:
-                        first_token_received = True
-                        text_token_time = time.time()
-                        delta = text_token_time - last_timing_step
-                        timing_info.append(
-                            f"3. LLM first token: {(text_token_time - start_time):.2f}s (Δ+{delta:.2f}s)"
-                        )
-                        last_timing_step = text_token_time
-
+                    if not timing_info["llm_first_token"]:
+                        timing_info["llm_first_token"] = time.perf_counter()
                     print(content, end="", flush=True)
-                    current_sentence.append(content)
-                    text = "".join(current_sentence)
+                    chunker.current_text.append(content)
 
-                    # Enhanced sentence processing with priority breaks
-                    process_now = False
-                    words = text.split()
-                    word_count = len(words)
-                    
-                    # First sentence optimization
-                    if not chunker.found_first_sentence:
-                        if word_count >= 2:
-                            # Prioritize sentence breaks for first chunk
-                            if any(text.endswith(p) for p in chunker.sentence_breaks):
-                                process_now = True
-                            else:
-                                # Allow semantic breaks if no sentence break found
-                                process_now = any(
-                                    text.endswith(p) for p in chunker.semantic_breaks
-                                ) and word_count >= 2
-                    else:
-                        # Subsequent chunks use adaptive breaking
-                        process_now = (
-                            (any(text.endswith(p) for p in chunker.sentence_breaks) and word_count > settings.TARGET_SIZE//2) or
-                            (word_count > settings.TARGET_SIZE and any(
-                                text.endswith(p) for p in chunker.semantic_breaks
-                            ))
-                        )
-
-                    if process_now and any(c.isalnum() for c in text):
-                        # Find optimal break point
-                        break_point = max(
-                            (text.rfind(p) for p in chunker.sentence_breaks),
-                            default=max(
-                                (text.rfind(p) for p in chunker.semantic_breaks),
-                                default=-1
-                            )
-                        )
-                        
-                        if break_point > 0:
-                            chunk_text = text[:break_point+1].strip()
-                            remaining_text = text[break_point+1:].strip()
-                            
-                            if chunk_text:
-                                audio_queue.add_sentences([chunk_text])
-                                complete_response.append(chunk_text)
-                                current_sentence = [remaining_text] if remaining_text else []
-                                chunker.found_first_sentence = True
-
-                                if not first_generation_time:
-                                    first_generation_time = time.time()
-                                    delta = first_generation_time - last_timing_step
-                                    timing_info.append(
-                                        f"4. Audio queued: {first_generation_time - start_time:.2f}s (Δ+{delta:.2f}s)"
-                                    )
-                                    last_timing_step = first_generation_time
+                    text = "".join(chunker.current_text)
+                    if chunker.should_process(text):
+                        if not timing_info["audio_queued"]:
+                            timing_info["audio_queued"] = time.perf_counter()
+                        remaining = chunker.process(text, audio_queue)
+                        chunker.current_text = [remaining]
+                        complete_response.append(text[: len(text) - len(remaining)])
 
             if choice.get("finish_reason") == "stop":
-                text = "".join(current_sentence)
-                if text.strip() and any(c.isalnum() for c in text):
-                    audio_queue.add_sentences([text])
-                    complete_response.append(text)
+                final_text = "".join(chunker.current_text).strip()
+                if final_text:
+                    chunker.process(final_text, audio_queue)
+                    complete_response.append(final_text)
                 break
-
-            # Add priority to first sentence generation
-            if not first_generation_time and chunker.found_first_sentence:
-                # Immediately yield to playback thread
-                time.sleep(0.01)  # Allow potential context switch
 
         messages.append({"role": "assistant", "content": " ".join(complete_response)})
         print()
@@ -192,22 +114,17 @@ def process_input(
         audio_queue.stop()
         playback_thread.join()
 
-        end_time = time.time()
-        delta = end_time - start_time
-        timing_info.append(
-            f"5. End-to-end response time: {end_time - start_time:.2f}s (Δ+{delta:.2f}s)"
-        )
+        # Add playback timing
+        def playback_wrapper():
+            timing_info["playback_start"] = time.perf_counter()
+            result = audio_playback_worker(audio_queue)
+            return result
 
-        logger.info("\n" + "=" * 50)
-        logger.info("User Question: " + user_input)
-        logger.info("-" * 50)
-        logger.info("\nAI Response:")
-        logger.info(" ".join(complete_response))
-        logger.info("\nTiming Results:")
-        for timing in timing_info:
-            logger.info(timing)
-        logger.info("=" * 50 + "\n")
+        playback_thread = threading.Thread(target=playback_wrapper)
 
+        # Final timing point
+        timing_info["end"] = time.perf_counter()
+        print_timing_chart(timing_info)
         return False, None
 
     except Exception as e:
@@ -217,10 +134,10 @@ def process_input(
         return False, None
 
 
-def audio_playback_worker(audio_queue, timing_info, timing_data):
-    """Manages audio playback with shared timing data"""
+def audio_playback_worker(audio_queue) -> tuple[bool, None]:
+    """Manages audio playback in a separate thread, handling interruptions."""
+    global timing_info
     was_interrupted = False
-    first_audio_played = False
     interrupt_audio = None
 
     try:
@@ -231,23 +148,13 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
                 interrupt_audio = audio_data
                 break
 
-            audio_data, _, _ = audio_queue.get_next_audio()
+            audio_data, _ = audio_queue.get_next_audio()
             if audio_data is not None:
-                play_start = time.time()
+                # Record first audio playback time
+                if not timing_info["first_audio_play"]:
+                    timing_info["first_audio_play"] = time.perf_counter()
+
                 was_interrupted, interrupt_data = play_audio_with_interrupt(audio_data)
-                timing_info.append(
-                    f"6. Audio playback started: {play_start - timing_data['start_time']:.2f}s (Δ+{play_start - timing_data['last_step']:.2f}s)"
-                )
-                timing_data["last_step"] = play_start
-                if not first_audio_played:
-                    first_audio_played = True
-                    current_time = time.time()
-                    elapsed = current_time - timing_data["start_time"]
-                    delta = current_time - timing_data["last_step"]
-                    timing_info.append(
-                        f"6. First audio playback completed: {elapsed:.2f}s (Δ+{delta:.2f}s)"
-                    )
-                    timing_data["last_step"] = current_time
                 if was_interrupted:
                     interrupt_audio = interrupt_data
                     break
@@ -263,7 +170,6 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
 
     except Exception as e:
         print(f"Error in audio playback: {str(e)}")
-        traceback.print_exc()
 
     return was_interrupted, interrupt_audio
 
@@ -271,12 +177,10 @@ def audio_playback_worker(audio_queue, timing_info, timing_data):
 def main():
     """Main function to run the voice chat bot."""
     with requests.Session() as session:
-        generator = None
-
         try:
-            # Persistent session outside the loop
             session = requests.Session()
             generator = VoiceGenerator(settings.MODELS_DIR, settings.VOICES_DIR)
+
             print("\nInitializing Whisper model...")
             whisper_processor = WhisperProcessor.from_pretrained(settings.WHISPER_MODEL)
             whisper_model = WhisperForConditionalGeneration.from_pretrained(
@@ -293,23 +197,27 @@ def main():
             result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
             print(result)
 
-            print("\n=== Voice Chat Bot Ready ===")
+            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
+            messages.append({"role": "user", "content": "Hi"})
+            print("\n===Initializing Language Model===")
+            response_stream = get_ai_response(
+                session=session,
+                messages=messages,
+                llm_model=MODEL,
+                llm_url=URL,
+                max_tokens=1,
+                stream=False,
+            )
+            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
+
+            print("\n\n=== Voice Chat Bot Ready ===")
             print("The bot is now listening for speech.")
             print("Just start speaking, and I'll respond automatically!")
             print("You can interrupt me anytime by starting to speak.")
 
-            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
             speed = settings.SPEED
 
-            print("Warming up LLM...")
-            _ = warmup_llm(
-                session=session,
-                llm_model=MODEL,
-                llm_url=URL,
-            )
-
             while True:
-
                 try:
                     if msvcrt.kbhit():
                         user_input = input("\nYou (text): ").strip()
@@ -317,42 +225,31 @@ def main():
                         if user_input.lower() == "quit":
                             print("Goodbye!")
                             break
+
                     audio_data = record_continuous_audio()
                     if audio_data is not None:
-                        vad_start = time.time()
                         speech_segments = detect_speech_segments(
                             vad_pipeline, audio_data
                         )
-                        vad_time = time.time() - vad_start
 
                         if speech_segments is not None:
-                            transcribe_start = time.time()
                             print("\nTranscribing detected speech...")
+                            # Start transcription timing
+                            timing_info["transcription_start"] = time.perf_counter()
+
                             user_input = transcribe_audio(
                                 whisper_processor, whisper_model, speech_segments
                             )
-                            transcribe_time = time.time() - transcribe_start
 
-                            process_start = time.time()
+                            # Capture transcription duration
+                            timing_info["transcription_duration"] = (
+                                time.perf_counter() - timing_info["transcription_start"]
+                            )
                             if user_input.strip():
                                 print(f"You (voice): {user_input}")
                                 was_interrupted, speech_data = process_input(
-                                    session=session,
-                                    user_input=user_input,
-                                    messages=messages,
-                                    generator=generator,
-                                    speed=speed,
-                                    process_start_time=process_start,
-                                    vad_time=vad_time,
-                                    transcribe_time=transcribe_time,
+                                    session, user_input, messages, generator, speed
                                 )
-                                # Initialize timing_info before concatenation
-                                timing_info = []
-                                if was_interrupted:
-                                    timing_info = [
-                                        f"1. Voice activity detection: {vad_time:.2f}s",
-                                        f"2. Audio transcription: {transcribe_time:.2f}s",
-                                    ] + timing_info
                                 if was_interrupted and speech_data is not None:
                                     speech_segments = detect_speech_segments(
                                         vad_pipeline, speech_data
@@ -372,12 +269,9 @@ def main():
                                                 messages,
                                                 generator,
                                                 speed,
-                                                time.time(),
                                             )
                         else:
                             print("No clear speech detected, please try again.")
-
-                    # Add connection maintenance
                     if session is not None:
                         # Reset connection pool between interactions
                         session.headers.update({"Connection": "keep-alive"})
@@ -390,9 +284,39 @@ def main():
                 except Exception as e:
                     print(f"Error: {str(e)}")
                     continue
+
         except Exception as e:
             print(f"Error: {str(e)}")
-            raise e
+            print("\nFull traceback:")
+            traceback.print_exc()
+
+
+def print_timing_chart(metrics):
+    """Prints timing chart from global metrics"""
+    base_time = metrics["vad_start"]
+    events = [
+        ("User stopped speaking", metrics["vad_start"]),
+        ("VAD started", metrics["vad_start"]),
+        ("Transcription started", metrics["transcription_start"]),
+        ("LLM first token", metrics["llm_first_token"]),
+        ("Audio queued", metrics["audio_queued"]),
+        ("First audio played", metrics["first_audio_play"]),
+        ("Playback started", metrics["playback_start"]),
+        ("End-to-end response", metrics["end"]),
+    ]
+
+    print("\nTiming Chart:")
+    print(f"{'Event':<25} | {'Time (s)':>9} | {'Δ+':>6}")
+    print("-" * 45)
+
+    prev_time = base_time
+    for name, t in events:
+        if t is None:
+            continue
+        elapsed = t - base_time
+        delta = t - prev_time
+        print(f"{name:<25} | {elapsed:9.2f} | {delta:6.2f}")
+        prev_time = t
 
 
 if __name__ == "__main__":

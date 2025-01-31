@@ -1,5 +1,37 @@
 This is a real-time conversational system for two-way speech communication with AI models, utilizing a continuous streaming architecture for fluid conversations with immediate responses and natural interruption handling. All components of this system are run locally [on CPU, in my test system].
 
+<details>
+<summary><h2 style="color: yellow;">HOW TO RUN IT</h2></summary>
+
+1. **Prerequisites:**
+   - Install Python 3.8+ (tested with 3.12)
+   - Install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases/tag/1.52.0) (required for voice synthesis)
+   - Install Ollama from https://ollama.ai/
+
+2. **Setup:**
+   - Clone this repository
+   - Copy `.env.template` to `.env` 
+   - Add your HuggingFace token to `.env`
+   - Install requirements: `pip install -r requirements.txt`
+
+3. **Download Models:** [Optional]
+   - Place Kokoro model (`kokoro-v0_19-half.pth`) in `data/models/`
+   - Voice models (`*.pt` files) should be in `data/voices/`
+
+4. **Run Ollama:**
+   - Start Ollama service
+   - Pull the model: `ollama pull llama3.2:1b-instruct-q8_0`
+   - Run: `ollama run llama3.2:1b-instruct-q8_0`
+
+5. **Start Application:**
+   - Run: `python speech_to_speech.py`
+   - Wait for initialization (models loading)
+   - Start talking when you see "Voice Chat Bot Ready"
+
+</details>
+
+
+
 ## System Architecture & Technologies
 
 The system employs a multi-threaded architecture, where each component operates independently but is integrated through a queue management system to ensure performance and responsiveness. This design maintains a natural conversational flow, powered by several specialized AI models:
@@ -16,7 +48,7 @@ The system employs a multi-threaded architecture, where each component operates 
 The system leverages a carefully selected stack of AI models and technologies:
 
 ### Speech Processing Stack
-- **Voice Activity Detection**: Pyannote.audio Segment.30
+- **Voice Activity Detection**: Pyannote.audio Segmentation-3.0
   - Optimized for real-time speech detection
   - Low latency operation (2-3ms per frame)
   - Accurate speaker segmentation

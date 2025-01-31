@@ -32,12 +32,13 @@ class Settings(BaseSettings):
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
 
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
+    OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
     MAX_TOKENS: int = Field(default=4096, env="MAX_TOKENS")
-    LM_STUDIO_TEMPERATURE: float = Field(default=0.7, env="LM_STUDIO_TEMPERATURE")
-    LM_STUDIO_STREAM: bool = Field(default=False, env="LM_STUDIO_STREAM")
-    LM_STUDIO_RETRY_DELAY: float = Field(default=0.5, env="LM_STUDIO_RETRY_DELAY")
+    LM_STUDIO_TEMPERATURE: float = Field(default=0.7, env="LMM_TEMPERATURE")
+    LM_STUDIO_STREAM: bool = Field(default=False, env="LLM_STREAM")
+    LM_STUDIO_RETRY_DELAY: float = Field(default=0.5, env="LLM_RETRY_DELAY")
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
 
     WHISPER_MODEL: str = Field(default="openai/whisper-tiny.en", env="WHISPER_MODEL")

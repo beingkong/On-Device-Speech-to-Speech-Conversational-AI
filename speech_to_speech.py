@@ -20,8 +20,8 @@ from src.utils.llm import parse_stream_chunk
 import threading
 from src.utils.text_chunker import TextChunker
 
-MODEL = "llama3.2:1b-instruct-q8_0"
-URL = "http://localhost:11434/api/chat"
+MODEL = settings.LLM_MODEL
+URL = settings.OLLAMA_URL
 settings.setup_directories()
 timing_info = {
     "vad_start": None,
@@ -198,17 +198,16 @@ def main():
             print(result)
 
             messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
-            messages.append({"role": "user", "content": "Hi"})
+            messages.append({"role": "user", "content": "Hi!"})
             print("\n===Initializing Language Model===")
             response_stream = get_ai_response(
                 session=session,
                 messages=messages,
                 llm_model=MODEL,
                 llm_url=URL,
-                max_tokens=1,
+                max_tokens=2,
                 stream=False,
             )
-            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
 
             print("\n\n=== Voice Chat Bot Ready ===")
             print("The bot is now listening for speech.")

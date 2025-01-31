@@ -17,3 +17,4 @@ pyaudio
 datasets
 pyannote.audio
 torch_audiomentations
+pydantic_settings

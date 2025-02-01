@@ -80,7 +80,7 @@ def get_ai_response(
                 "messages": messages,
                 "options": {
                     "num_ctx": settings.TARGET_SIZE,
-                    "num_thread": 10,
+                    "num_thread": 4,
                     "repeat_penalty": 1.0,
                     "stop": ["\n"],
                 },
@@ -120,7 +120,7 @@ def parse_stream_chunk(chunk: bytes) -> dict:
     """
     if not chunk:
         return {"keep_alive": True}
-    
+
     try:
         text = chunk.decode("utf-8").strip()
         if text.startswith("data: "):

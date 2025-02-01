@@ -4,10 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 def init_espeak():
     """Initialize eSpeak environment variables. Must be called before any other imports."""
-    os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+    os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = (
+        r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+    )
     os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
+
 
 init_espeak()
 
@@ -15,13 +19,15 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import Optional
 
+
 class Settings(BaseSettings):
     """Settings class to manage application configurations."""
+
     BASE_DIR: Path = Path(__file__).parent.parent.parent
-    MODELS_DIR: Path = BASE_DIR / 'data' / 'models'
-    VOICES_DIR: Path = BASE_DIR / 'data' / 'voices'
-    OUTPUT_DIR: Path = BASE_DIR / 'output'
-    RECORDINGS_DIR: Path = BASE_DIR / 'recordings'
+    MODELS_DIR: Path = BASE_DIR / "data" / "models"
+    VOICES_DIR: Path = BASE_DIR / "data" / "voices"
+    OUTPUT_DIR: Path = BASE_DIR / "output"
+    RECORDINGS_DIR: Path = BASE_DIR / "recordings"
 
     ESPEAK_LIBRARY_PATH: str = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     ESPEAK_PATH: str = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
@@ -35,14 +41,15 @@ class Settings(BaseSettings):
     OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")
     LLM_MODEL: str = Field(..., env="LLM_MODEL")
-    MAX_TOKENS: int = Field(default=4096, env="MAX_TOKENS")
+    NUM_THREADS: int = Field(default=2, env="NUM_THREADS")
+    MAX_TOKENS: int = Field(default=512, env="MAX_TOKENS")
     LLM_TEMPERATURE: float = Field(default=0.7, env="LMM_TEMPERATURE")
     LLM_STREAM: bool = Field(default=False, env="LLM_STREAM")
     LLM_RETRY_DELAY: float = Field(default=0.5, env="LLM_RETRY_DELAY")
     MAX_RETRIES: int = Field(default=3, env="MAX_RETRIES")
 
     WHISPER_MODEL: str = Field(default="openai/whisper-tiny.en", env="WHISPER_MODEL")
-    
+
     VAD_MODEL: str = Field(default="pyannote/segmentation-3.0", env="VAD_MODEL")
     VAD_MIN_DURATION_ON: float = Field(default=0.1, env="VAD_MIN_DURATION_ON")
     VAD_MIN_DURATION_OFF: float = Field(default=0.1, env="VAD_MIN_DURATION_OFF")
@@ -73,28 +80,31 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
+
 settings = Settings()
+
 
 def configure_logging():
     """Configure logging to suppress all logs"""
     import logging
     import warnings
-    
-    warnings.filterwarnings('ignore')
-    
+
+    warnings.filterwarnings("ignore")
+
     logging.getLogger().setLevel(logging.ERROR)
-    
-    logging.getLogger('urllib3').setLevel(logging.ERROR)
-    logging.getLogger('PIL').setLevel(logging.ERROR)
-    logging.getLogger('matplotlib').setLevel(logging.ERROR)
-    logging.getLogger('torch').setLevel(logging.ERROR)
-    logging.getLogger('tensorflow').setLevel(logging.ERROR)
-    logging.getLogger('whisper').setLevel(logging.ERROR)
-    logging.getLogger('transformers').setLevel(logging.ERROR)
-    logging.getLogger('pyannote').setLevel(logging.ERROR)
-    logging.getLogger('sounddevice').setLevel(logging.ERROR)
-    logging.getLogger('soundfile').setLevel(logging.ERROR)
-    logging.getLogger('uvicorn').setLevel(logging.ERROR)
-    logging.getLogger('fastapi').setLevel(logging.ERROR)
+
+    logging.getLogger("urllib3").setLevel(logging.ERROR)
+    logging.getLogger("PIL").setLevel(logging.ERROR)
+    logging.getLogger("matplotlib").setLevel(logging.ERROR)
+    logging.getLogger("torch").setLevel(logging.ERROR)
+    logging.getLogger("tensorflow").setLevel(logging.ERROR)
+    logging.getLogger("whisper").setLevel(logging.ERROR)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("pyannote").setLevel(logging.ERROR)
+    logging.getLogger("sounddevice").setLevel(logging.ERROR)
+    logging.getLogger("soundfile").setLevel(logging.ERROR)
+    logging.getLogger("uvicorn").setLevel(logging.ERROR)
+    logging.getLogger("fastapi").setLevel(logging.ERROR)
+
 
 configure_logging()

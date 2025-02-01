@@ -79,15 +79,14 @@ def get_ai_response(
                 "model": llm_model,
                 "messages": messages,
                 "options": {
-                    "num_ctx": settings.TARGET_SIZE,
-                    "num_thread": 4,
-                    "repeat_penalty": 1.0,
+                    "num_ctx": settings.MAX_TOKENS*2,
+                    "num_thread": settings.NUM_THREADS,
                     "stop": ["\n"],
                 },
-                "stream": True,
+                "stream": stream,
             },
             timeout=8,
-            stream=True,
+            stream=stream,
         )
         response.raise_for_status()
 

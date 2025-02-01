@@ -9,80 +9,63 @@ This is a real-time conversational system for two-way speech communication with 
    - Install Ollama from https://ollama.ai/
 
 2. **Setup:**
-   - Clone this repository
+   - Clone this repository `git clone https://github.com/On-Device-Speech-to-Speech-AI`
+   - Run `git lfs pull` to download the models and voices
    - Copy `.env.template` to `.env` 
    - Add your HuggingFace token to `.env`
    - Install requirements: `pip install -r requirements.txt`
+   - Add any missing packages if not already installed `pip install <package_name>`
 
-3. **Download Models:** [Optional]
-   - Place Kokoro model (`kokoro-v0_19-half.pth`) in `data/models/`
-   - Voice models (`*.pt` files) should be in `data/voices/`
 
 4. **Run Ollama:**
    - Start Ollama service
-   - Pull the model: `ollama pull llama3.2:1b-instruct-q8_0`
-   - Run: `ollama run llama3.2:1b-instruct-q8_0`
+   - Run: `ollama run llama3.2:1b` or any other model of your choice
 
 5. **Start Application:**
    - Run: `python speech_to_speech.py`
    - Wait for initialization (models loading)
    - Start talking when you see "Voice Chat Bot Ready"
-
+   - Long press `Ctrl+C` to stop the application
 </details>
 
 
 
-## System Architecture & Technologies
-
-The system employs a multi-threaded architecture, where each component operates independently but is integrated through a queue management system to ensure performance and responsiveness. This design maintains a natural conversational flow, powered by several specialized AI models:
-
-- **Speech Recognition**: Whisper:whisper-tiny.en (OpenAI)
-- **Voice Activity Detection**: Pyannote:pyannote/segmentation-3.0
-- **Language Model**: LM Studio:llama-3.2-1b-instruct
-- **Voice Synthesis**: Kokoro:hexgrad/Kokoro-82M
 
 ![System Overview](assets/system_design.png)
 
-## Technical Implementation
+We basiclaly put together a few models togetehr to work together in a multi-threaded architecture, where each component operates independently but is integrated through a queue management system to ensure performance and responsiveness. 
+### The flow works as follows: Loop (VAD -> Whisper -> LM -> TextChunker -> TTS)
+To achive that we use:
 
-The system leverages a carefully selected stack of AI models and technologies:
+- **Voice Activity Detection**: Pyannote:pyannote/segmentation-3.0
+- **Speech Recognition**: Whisper:whisper-tiny.en (OpenAI)
+- **Language Model**: LM Studio/Ollama with Llama-2 1B
+- **Voice Synthesis**: Kokoro:hexgrad/Kokoro-82M
 
-### Speech Processing Stack
-- **Voice Activity Detection**: Pyannote.audio Segmentation-3.0
-  - Optimized for real-time speech detection
-  - Low latency operation (2-3ms per frame)
-  - Accurate speaker segmentation
+We use custom text processing and queues to manage data, with separate queues for text and audio. This setup allows the system to handle heavy tasks without slowing down. We also use an interrupt mechanism allowing user to interrupt the AI at any time. This makes the conversation feel more natural and responsive rather than just a generic TTS engine.
 
-- **Speech Recognition**: Whisper-tiny.en
-  - Lightweight model optimized for English
-  - 39M parameters for efficient processing
-  - Real-time transcription capabilities
+## How do we reduce latency?
 
-### Language Processing
-- **Language Model**: LM Studio with Llama-2 1B
-  - Local inference for reduced latency
-  - Streaming token generation
-  - Context-aware responses
-  - Optimized for conversational AI
+We capitalize the streaming output of the language model to reduce latency. Instead of waiting for the entire response to be generated, we process and deliver each chunk of text as soon as they becomes available, form prashes and send it to the TTS engine queue. We play the audio as soon as it becomes available. This way, user get a very fast response, while the rest of the response is being generated.
 
-### Voice Synthesis
-- **Text-to-Speech**: Web Kokoro 82M
-  - Neural voice synthesis
-  - Low latency generation
-  - Support for voice mixing and modification
-  - Efficient tensor operations
+Our custom `TextChunker` analyzes incoming text streams from the language model and splits them into chunks suitable for the voice synthesizer. It uses a combination of sentence breaks (like periods, question marks, and exclamation points) and semantic breaks (like "and", "but", and "however") to determine the best places to split the text, ensuring natural-sounding speech output.
 
-The implementation includes sophisticated queue management for efficient data flow, with separate queues handling text processing and audio generation. This multi-threaded architecture ensures that computationally intensive tasks don't impact system responsiveness, while the interrupt handling system enables natural conversation flow through immediate response to user input.
+The `TextChunker` maintains a set of break points:
+- **Sentence breaks**: `.`, `!`, `?` (highest priority)
+- **Semantic breaks** with priority levels:
+  - Level 4: `however`, `therefore`, `furthermore`, `moreover`, `nevertheless`
+  - Level 3: `while`, `although`, `unless`, `since`
+  - Level 2: `and`, `but`, `because`, `then`
+- **Punctuation breaks**: `;` (4), `:` (4), `,` (3), `-` (2)
 
-## Intelligent Text Processing
+When processing text, the `TextChunker` uses a priority-based system:
+1. Looks for sentence-ending punctuation first (highest priority 5)
+2. Checks for semantic break words with their associated priority levels
+3. Falls back to punctuation marks with lower priorities
+4. Splits at target word count if no natural breaks found
 
-The system uses the `TextChunker` component to prepare text for voice generation. This component analyzes incoming text streams from the language model and splits them into chunks suitable for the voice synthesizer. It uses a combination of sentence breaks (like periods, question marks, and exclamation points) and semantic breaks (like "and", "but", and "however") to determine the best places to split the text, ensuring natural-sounding speech output.
+The text chunking system now uses this priority hierarchy to determine optimal break points, helping balance between natural speech flow and latency reduction. This matches the actual implementation in `TextChunker.find_break_point()`.
 
-The `TextChunker` maintains two sets of break points:
-- **Sentence breaks**: `.`, `!`, `?`, `:`, `;`
-- **Semantic breaks**: `however`, `therefore`, `furthermore`, `moreover`, `nevertheless`, `while`, `although`, `unless`, `since`, `and`, `but`, `because`, `then`, `,`, `-`
-
-When processing text, the `TextChunker` looks for these break points to determine where to split the text. It first checks for sentence breaks, and if none are found, it looks for semantic breaks. This approach helps the generated speech maintain a natural rhythm and pace.
 The text chunking method significantly reduces perceived latency by processing and delivering the first chunk of text as soon as it becomes available. Let's consider a hypothetical system where the language model generates responses at a certain rate. If we imagine a scenario where the model produces a response of N words at a rate of R words per second, waiting for the complete response would introduce a delay of N/R seconds before any audio is produced. With text chunking, the system can start processing the first M words as soon as they are ready (after M/R seconds), while the remaining words continue to be generated. This means the user hears the initial part of the response in just M/R seconds, while the rest streams in naturally.
 
 In practice, this approach can reduce perceived latency by up to 50-70%, depending on the length of the response and the speed of 
@@ -91,40 +74,26 @@ response time down from 1.5-2 seconds to just 0.5-0.7 seconds, making the intera
 
 **On CPU, where I tested it, it is significantly slower, but still faster than waiting for the entire response to be generated.**
 
-## Audio Queue Management
 
-The system uses a queue management architecture to handle both input and output audio streams. The `AudioGenerationQueue` acts as the central coordinator, managing multiple queues that handle different aspects of the audio processing pipeline.
+## Resources
 
-The queue system uses non-blocking operations throughout the pipeline, allowing it to remain responsive under load. If a user starts speaking while the AI is responding, the system can immediately stop the current processing, clear the relevant queues, and switch to processing the new input.
+This project utilizes the following resources:
 
-## Voice Generation System
+*   **Text-to-Speech Model:** [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)
+*   **Speech-to-Text Model:** [Whisper](https://huggingface.co/openai/whisper-tiny.en)
+*   **Voice Activity Detection Model:** [Pyannote](https://huggingface.co/pyannote/segmentation-3.0)
+*   **Large Language Model Server:** [Ollama](https://ollama.ai/)
+*   **Fallback Text-to-Speech Engine:** [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases/tag/1.52.0)
 
-The voice generation component manages speech synthesis using a tensor-based pipeline. This system supports dynamic voice switching and mixing, achieved through a voice embedding processor that can combine multiple voice characteristics in real-time.
+## Acknowledgements
 
-The voice generation system uses tensor operations for voice mixing, allowing for weighted combinations of different voice characteristics. This enables dynamic voice transitions and the creation of personalized voices by mixing existing voice embeddings.
+This project draws inspiration and guidance from the following articles and repositories, among others:
 
-## Natural Interruption System
+*   [Realtime speech to speech conversation with MiniCPM-o](https://github.com/OpenBMB/MiniCPM-o)
+*   [A Comparative Guide to OpenAI and Ollama APIs](https://medium.com/@zakkyang/a-comparative-guide-to-openai-and-ollama-apis-with-cheathsheet-5aae6e515953)
+*   [Building Production-Ready TTS with Kokoro-82M](https://medium.com/@simeon.emanuilov/kokoro-82m-building-production-ready-tts-with-82m-parameters-unfoldai-98e36ff286b9)
+*   [Kokoro-82M: The Best TTS Model in Just 82 Million Parameters](https://medium.com/data-science-in-your-pocket/kokoro-82m-the-best-tts-model-in-just-82-million-parameters-512b4ba4f94c)
+*   [StyleTTS2 Model Implementation](https://github.com/yl4579/StyleTTS2/blob/main/models.py)
 
-The system includes an interruption detection system that uses a continuous feedback loop. This loop monitors for speech input while processing and playing audio output. This creates a natural conversation flow where users can interrupt the AI's response at any time, similar to a human conversation.
 
-The interrupt handling system is integrated into the audio processing pipeline. It uses queue management to immediately respond to new speech input while maintaining the conversation's context.
 
-## Technical Implementation
-
-The system is built using Python 3.8+ (3.12 was used for testing). Core processing uses PyTorch for tensor operations and model inference. Real-time audio processing is handled using PyAudio and sounddevice libraries. The speech recognition component uses Whisper for transcription, and the system uses CUDA acceleration when available.
-
-The implementation includes queue management for data flow, with separate queues for text processing and audio generation. This multi-threaded architecture ensures that computationally intensive tasks do not impact system responsiveness. The interrupt handling system enables a natural conversation flow by immediately responding to user input.
-
-Through optimization of the audio processing pipeline and memory management, the system maintains low latency while delivering voice synthesis. The modular architecture allows for extension and modification of individual components.
-
-## Configuration System
-
-The system uses a configuration management system that allows for customization of parameters:
-
-- Voice model and embedding settings
-- Audio processing parameters
-- VAD sensitivity thresholds
-- Language model configurations
-- System paths and environment settings
-
-All parameters can be adjusted through environment variables or the configuration file, allowing for performance tuning.

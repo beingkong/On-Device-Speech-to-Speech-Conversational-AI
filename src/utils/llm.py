@@ -81,11 +81,10 @@ def get_ai_response(
                 "options": {
                     "num_ctx": settings.MAX_TOKENS*2,
                     "num_thread": settings.NUM_THREADS,
-                    "stop": ["\n"],
                 },
                 "stream": stream,
             },
-            timeout=8,
+            timeout=3600,
             stream=stream,
         )
         response.raise_for_status()

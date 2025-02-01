@@ -190,30 +190,47 @@ def main():
         try:
             session = requests.Session()
             generator = VoiceGenerator(settings.MODELS_DIR, settings.VOICES_DIR)
-
+            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
             print("\nInitializing Whisper model...")
             whisper_processor = WhisperProcessor.from_pretrained(settings.WHISPER_MODEL)
             whisper_model = WhisperForConditionalGeneration.from_pretrained(
                 settings.WHISPER_MODEL
             )
-
             print("\nInitializing Voice Activity Detection...")
             vad_pipeline = init_vad_pipeline(settings.HUGGINGFACE_TOKEN)
-
             print("\n=== Voice Chat Bot Initializing ===")
             print("Device being used:", generator.device)
-
             print("\nInitializing voice generator...")
             result = generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
             print(result)
-            messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
+            speed = settings.SPEED
+            try:
+                print("\nWarming up the LLM model...")
+                health = session.get("http://localhost:11434", timeout=3)
+                if health.status_code != 200:
+                    print("Ollama not running! Start it first.")
+                    return
+                response_stream = get_ai_response(
+                    session=session,
+                    messages=[
+                        {"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT},
+                        {"role": "user", "content": "Hi!"},
+                    ],
+                    llm_model=settings.LLM_MODEL,
+                    llm_url=settings.OLLAMA_URL,
+                    max_tokens=settings.MAX_TOKENS,
+                    stream=False,
+                )
+                if not response_stream:
+                    print("Failed to initialized the AI model!")
+                    return
+            except requests.RequestException as e:
+                print(f"Warmup failed: {str(e)}")
+
             print("\n\n=== Voice Chat Bot Ready ===")
             print("The bot is now listening for speech.")
             print("Just start speaking, and I'll respond automatically!")
             print("You can interrupt me anytime by starting to speak.")
-
-            speed = settings.SPEED
-
             while True:
                 try:
                     if msvcrt.kbhit():

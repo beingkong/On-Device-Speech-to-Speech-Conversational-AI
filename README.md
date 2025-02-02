@@ -1,4 +1,4 @@
-![System Overview](assets/system_architecture.svg)
+[![On Device Speech to Speech AI Demo](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/system_architecture.svg)](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/video_demo.mov)
 
 This is a real-time conversational system for two-way speech communication with AI models, utilizing a continuous streaming architecture for fluid conversations with immediate responses and natural interruption handling. All components of this system are run locally [on CPU, in my test system].
 

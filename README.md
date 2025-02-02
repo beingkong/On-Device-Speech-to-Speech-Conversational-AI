@@ -1,5 +1,9 @@
-[![On Device Speech to Speech AI Demo](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/system_architecture.svg)](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/video_demo.mov)
-
+[![YouTube](https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/x92FLnwf-nA)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/abdullahalasif-bd/)
+[![GitHub Stars](https://img.shields.io/github/stars/asiff00/On-Device-Speech-To-Speech-AI?style=for-the-badge)](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/asiff00/On-Device-Speech-To-Speech-AI?style=for-the-badge)](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/network/members)
+# On Device Speech to Speech Conversationl AI
+[![On Device Speech to Speech AI](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/system_architecture.svg)](https://github.com/asiff00/On-Device-Speech-To-Speech-AI/raw/main/assets/video_demo.mov)
 This is a real-time conversational system for two-way speech communication with AI models, utilizing a continuous streaming architecture for fluid conversations with immediate responses and natural interruption handling. All components of this system are run locally [on CPU, in my test system].
 
 <details>
@@ -42,6 +46,11 @@ To achieve that we use:
 - **Voice Synthesis**: Kokoro:hexgrad/Kokoro-82M
 
 We use custom text processing and queues to manage data, with separate queues for text and audio. This setup allows the system to handle heavy tasks without slowing down. We also use an interrupt mechanism allowing the user to interrupt the AI at any time. This makes the conversation feel more natural and responsive rather than just a generic TTS engine.
+
+## Demo Video:
+A demo video is uploaded here. Either click on the thumbnail or click on the YouTube link: [https://youtu.be/x92FLnwf-nA](https://youtu.be/x92FLnwf-nA).
+
+[![On Device Speech to Speech AI Demo](https://img.youtube.com/vi/x92FLnwf-nA/0.jpg)](https://youtu.be/x92FLnwf-nA)
 
 ## Performance:
 ![Timing Chart](assets/timing_chart.png)

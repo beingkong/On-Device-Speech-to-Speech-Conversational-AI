@@ -55,6 +55,7 @@ A demo video is uploaded here. Either click on the thumbnail or click on the You
 
 ## Performance:
 ![Timing Chart](assets/timing_chart.png)
+
 I ran this test on an AMD Ryzen 5600G, 16 GB, SSD, and No-GPU setup, achieving consistent ~2s latency. On average, it takes around 1.5s for the system to respond to a user query from the point the user says the last word. Although I haven't tested this on a GPU, I believe testing on a GPU would significantly improve performance and responsiveness.
 
 ## How do we reduce latency?

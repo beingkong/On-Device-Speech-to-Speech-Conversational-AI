@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     OUTPUT_SAMPLE_RATE: int = Field(default=24000, env="OUTPUT_SAMPLE_RATE")
     RECORD_DURATION: int = Field(default=5, env="RECORD_DURATION")
     SILENCE_THRESHOLD: float = Field(default=0.01, env="SILENCE_THRESHOLD")
+    INTERRUPTION_THRESHOLD: float = Field(default=0.02, env="INTERRUPTION_THRESHOLD")
     MAX_SILENCE_DURATION: int = Field(default=1, env="MAX_SILENCE_DURATION")
     SPEECH_CHECK_TIMEOUT: float = Field(default=0.1, env="SPEECH_CHECK_TIMEOUT")
     SPEECH_CHECK_THRESHOLD: float = Field(default=0.02, env="SPEECH_CHECK_THRESHOLD")

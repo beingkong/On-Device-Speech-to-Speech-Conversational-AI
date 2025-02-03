@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import os
 
+
 def load_config():
     """Loads configuration from config.json.
 
@@ -18,6 +19,7 @@ def load_config():
     with open(config_path) as f:
         return json.load(f)
 
+
 def get_available_voices(voices_dir):
     """Gets a list of available voice names without the .pt extension.
 
@@ -31,6 +33,7 @@ def get_available_voices(voices_dir):
     if not voices_dir.exists():
         return []
     return [f.stem for f in voices_dir.glob("*.pt")]
+
 
 def validate_voice_name(voice_name, voices_dir):
     """Validates that a voice name exists in the voices directory.
@@ -52,6 +55,7 @@ def validate_voice_name(voice_name, voices_dir):
         )
     return True
 
+
 def load_voice(voice_name, voices_dir):
     """Loads a voice from the voices directory.
 
@@ -69,25 +73,26 @@ def load_voice(voice_name, voices_dir):
     voices_dir = Path(voices_dir)
     assert voices_dir.exists(), f"Voices directory does not exist: {voices_dir}"
     assert voices_dir.is_dir(), f"Voices path is not a directory: {voices_dir}"
-    
+
     validate_voice_name(voice_name, voices_dir)
-    
-    voice_path = voices_dir / f'{voice_name}.pt'
+
+    voice_path = voices_dir / f"{voice_name}.pt"
     assert voice_path.exists(), f"Voice file not found: {voice_path}"
     assert voice_path.is_file(), f"Voice path is not a file: {voice_path}"
-    
+
     try:
         voice = torch.load(voice_path, weights_only=True)
     except Exception as e:
         raise RuntimeError(f"Error loading voice file {voice_path}: {str(e)}")
-    
+
     if not isinstance(voice, torch.Tensor):
         try:
             voice = torch.tensor(voice)
         except Exception as e:
             raise RuntimeError(f"Could not convert voice to tensor: {str(e)}")
-    
+
     return voice
+
 
 def quick_mix_voice(output_name, voices_dir, *voices, weights=None):
     """Mixes and saves voices with specified weights.
@@ -108,41 +113,46 @@ def quick_mix_voice(output_name, voices_dir, *voices, weights=None):
     voices_dir = Path(voices_dir)
     assert voices_dir.exists(), f"Voices directory does not exist: {voices_dir}"
     assert voices_dir.is_dir(), f"Voices path is not a directory: {voices_dir}"
-    
+
     if not voices:
         raise ValueError("Must provide at least one voice")
-    
+
     base_shape = voices[0].shape
     for i, voice in enumerate(voices):
         if not isinstance(voice, torch.Tensor):
             raise ValueError(f"Voice {i} is not a tensor")
         if voice.shape != base_shape:
-            raise ValueError(f"Voice {i} has shape {voice.shape}, but expected {base_shape} (same as first voice)")
-    
+            raise ValueError(
+                f"Voice {i} has shape {voice.shape}, but expected {base_shape} (same as first voice)"
+            )
+
     if weights is None:
         weights = [1.0 / len(voices)] * len(voices)
     else:
         if len(weights) != len(voices):
-            raise ValueError(f"Number of weights ({len(weights)}) must match number of voices ({len(voices)})")
+            raise ValueError(
+                f"Number of weights ({len(weights)}) must match number of voices ({len(voices)})"
+            )
         weights_sum = sum(weights)
         if weights_sum <= 0:
             raise ValueError("Sum of weights must be positive")
         weights = [w / weights_sum for w in weights]
-    
+
     device = voices[0].device
     voices = [v.to(device) for v in voices]
-    
+
     stacked = torch.stack(voices)
     weights = torch.tensor(weights, device=device)
-    
+
     mixed = torch.zeros_like(voices[0])
     for i, weight in enumerate(weights):
         mixed += stacked[i] * weight
-    
-    output_path = voices_dir / f'{output_name}.pt'
+
+    output_path = voices_dir / f"{output_name}.pt"
     torch.save(mixed, output_path)
     print(f"Created mixed voice: {output_name}.pt")
     return mixed
+
 
 def split_into_sentences(text):
     """Splits text into sentences using more robust rules.
@@ -154,60 +164,60 @@ def split_into_sentences(text):
         list: A list of sentences (strings).
     """
     import re
-    
+
     text = text.strip()
     if not text:
         return []
-        
+
     abbreviations = {
-        'Mr.': 'Mr',
-        'Mrs.': 'Mrs',
-        'Dr.': 'Dr',
-        'Ms.': 'Ms',
-        'Prof.': 'Prof',
-        'Sr.': 'Sr',
-        'Jr.': 'Jr',
-        'vs.': 'vs',
-        'etc.': 'etc',
-        'i.e.': 'ie',
-        'e.g.': 'eg',
-        'a.m.': 'am',
-        'p.m.': 'pm'
+        "Mr.": "Mr",
+        "Mrs.": "Mrs",
+        "Dr.": "Dr",
+        "Ms.": "Ms",
+        "Prof.": "Prof",
+        "Sr.": "Sr",
+        "Jr.": "Jr",
+        "vs.": "vs",
+        "etc.": "etc",
+        "i.e.": "ie",
+        "e.g.": "eg",
+        "a.m.": "am",
+        "p.m.": "pm",
     }
-    
+
     for abbr, repl in abbreviations.items():
         text = text.replace(abbr, repl)
-    
+
     sentences = []
     current = []
-    
-    words = re.findall(r'\S+|\s+', text)
-    
+
+    words = re.findall(r"\S+|\s+", text)
+
     for word in words:
         current.append(word)
-        
-        if re.search(r'[.!?]+$', word):
-            if not re.match(r'^[A-Z][a-z]{1,2}$', word[:-1]):
-                sentence = ''.join(current).strip()
+
+        if re.search(r"[.!?]+$", word):
+            if not re.match(r"^[A-Z][a-z]{1,2}$", word[:-1]):
+                sentence = "".join(current).strip()
                 if sentence:
                     sentences.append(sentence)
                 current = []
                 continue
-    
+
     if current:
-        sentence = ''.join(current).strip()
+        sentence = "".join(current).strip()
         if sentence:
             sentences.append(sentence)
-    
+
     for abbr, repl in abbreviations.items():
         sentences = [s.replace(repl, abbr) for s in sentences]
-    
+
     sentences = [s.strip() for s in sentences if s.strip()]
-    
+
     final_sentences = []
     for s in sentences:
         if len(s) > 200:
-            parts = s.split(',')
+            parts = s.split(",")
             parts = [p.strip() for p in parts if p.strip()]
             if len(parts) > 1:
                 final_sentences.extend(parts)
@@ -215,5 +225,5 @@ def split_into_sentences(text):
                 final_sentences.append(s)
         else:
             final_sentences.append(s)
-    
+
     return final_sentences

@@ -2,6 +2,7 @@ import numpy as np
 import sounddevice as sd
 import time
 
+
 def play_audio(audio_data: np.ndarray, sample_rate: int = 24000):
     """
     Play audio directly using sounddevice.
@@ -16,7 +17,10 @@ def play_audio(audio_data: np.ndarray, sample_rate: int = 24000):
     except Exception as e:
         print(f"Error playing audio: {str(e)}")
 
-def stream_audio_chunks(audio_chunks: list, sample_rate: int = 24000, pause_duration: float = 0.2):
+
+def stream_audio_chunks(
+    audio_chunks: list, sample_rate: int = 24000, pause_duration: float = 0.2
+):
     """
     Stream audio chunks one after another with a small pause between them.
 

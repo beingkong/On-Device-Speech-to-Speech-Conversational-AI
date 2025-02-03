@@ -79,7 +79,7 @@ def get_ai_response(
                 "model": llm_model,
                 "messages": messages,
                 "options": {
-                    "num_ctx": settings.MAX_TOKENS*2,
+                    "num_ctx": settings.MAX_TOKENS * 2,
                     "num_thread": settings.NUM_THREADS,
                 },
                 "stream": stream,

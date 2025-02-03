@@ -76,8 +76,6 @@ When processing text, the `TextChunker` uses a priority-based system:
 3. Falls back to punctuation marks with lower priorities
 4. Splits at target word count if no natural breaks are found
 
-The text chunking system now uses this priority hierarchy to determine optimal break points, helping balance between natural speech flow and latency reduction. This matches the actual implementation in `TextChunker.find_break_point()`.
-
 The text chunking method significantly reduces perceived latency by processing and delivering the first chunk of text as soon as it becomes available. Let's consider a hypothetical system where the language model generates responses at a certain rate. If we imagine a scenario where the model produces a response of N words at a rate of R words per second, waiting for the complete response would introduce a delay of N/R seconds before any audio is produced. With text chunking, the system can start processing the first M words as soon as they are ready (after M/R seconds), while the remaining words continue to be generated. This means the user hears the initial part of the response in just M/R seconds, while the rest streams in naturally.
 
 ### Leading filler word LLM Prompting

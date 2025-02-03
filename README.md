@@ -26,7 +26,7 @@ This is a real-time conversational system for two-way speech communication with 
 
 4. **Run Ollama:**
    - Start Ollama service
-   - Run: `ollama run llama3.2:1b` or any other model of your choice
+   - Run: `ollama run qwen2.5:0.5b-instruct-q8_0` or any other model of your choice
 
 5. **Start Application:**
    - Run: `python speech_to_speech.py`
@@ -43,7 +43,7 @@ To achieve that we use:
 
 - **Voice Activity Detection**: Pyannote:pyannote/segmentation-3.0
 - **Speech Recognition**: Whisper:whisper-tiny.en (OpenAI)
-- **Language Model**: LM Studio/Ollama with Llama-2 1B
+- **Language Model**: LM Studio/Ollama with qwen2.5:0.5b-instruct-q8_0
 - **Voice Synthesis**: Kokoro:hexgrad/Kokoro-82M
 
 We use custom text processing and queues to manage data, with separate queues for text and audio. This setup allows the system to handle heavy tasks without slowing down. We also use an interrupt mechanism allowing the user to interrupt the AI at any time. This makes the conversation feel more natural and responsive rather than just a generic TTS engine.

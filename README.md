@@ -7,8 +7,7 @@
 
 This is a real-time conversational system for two-way speech communication with AI models, utilizing a continuous streaming architecture for fluid conversations with immediate responses and natural interruption handling. All components of this system are run locally [on CPU, in my test system].
 
-<details>
-<summary><h2 style="color: yellow;">HOW TO RUN IT</h2></summary>
+<h2 style="color: yellow;">HOW TO RUN IT</h2>
 
 1. **Prerequisites:**
    - Install Python 3.8+ (tested with 3.12)
@@ -36,9 +35,10 @@ This is a real-time conversational system for two-way speech communication with 
 </details>
 
 
+# How does it work?
+We basically put a few models together to work in a multi-threaded architecture, where each component operates independently but is integrated through a queue management system to ensure performance and responsiveness. The flow works as follows: 
+### Loop (VAD -> Whisper -> LM -> TextChunker -> TTS)
 
-We basically put a few models together to work in a multi-threaded architecture, where each component operates independently but is integrated through a queue management system to ensure performance and responsiveness.
-### The flow works as follows: Loop (VAD -> Whisper -> LM -> TextChunker -> TTS)
 To achieve that we use:
 
 - **Voice Activity Detection**: Pyannote:pyannote/segmentation-3.0

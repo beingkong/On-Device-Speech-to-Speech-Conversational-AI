@@ -1,16 +1,15 @@
 from pathlib import Path
 import os
+import platform
 from dotenv import load_dotenv
-
 load_dotenv()
-
 
 def init_espeak():
     """Initialize eSpeak environment variables. Must be called before any other imports."""
-    os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = (
-        r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
-    )
-    os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
+    system = platform.system()
+    if system == "Windows":
+        os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
+        os.environ["PHONEMIZER_ESPEAK_PATH"] = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
 
 init_espeak()

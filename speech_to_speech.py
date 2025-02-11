@@ -1,4 +1,4 @@
-import msvcrt
+import keyboard
 import traceback
 import time
 import requests
@@ -233,7 +233,7 @@ def main():
             print("You can interrupt me anytime by starting to speak.")
             while True:
                 try:
-                    if msvcrt.kbhit():
+                    if keyboard.is_pressed("enter"):
                         user_input = input("\nYou (text): ").strip()
 
                         if user_input.lower() == "quit":

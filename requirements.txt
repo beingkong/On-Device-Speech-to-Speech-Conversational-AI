@@ -1,3 +1,4 @@
+keyboard
 phonemizer
 torch
 transformers

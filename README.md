@@ -16,7 +16,8 @@ This is a real-time conversational system for two-way speech communication with 
 
 2. **Setup:**
    - Clone this repository `git clone https://github.com/On-Device-Speech-to-Speech-Conversational-AI`
-   - Run `git lfs pull` to download the models and voices
+   - Run `cd On-Device-Speech-to-Speech-Conversational-AI` and go to the project directory
+   - Run `git lfs pull` from the project root directory to download the models and voices
    - Copy `.env.template` to `.env`
    - Add your HuggingFace token to `.env`
    - Install requirements: `pip install -r requirements.txt`

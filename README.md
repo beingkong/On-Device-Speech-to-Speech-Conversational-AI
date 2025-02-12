@@ -15,7 +15,7 @@ This is a real-time conversational system for two-way speech communication with 
    - Install Ollama from https://ollama.ai/
 
 2. **Setup:**
-   - Clone this repository `git clone https://github.com/On-Device-Speech-to-Speech-Conversational-AI`
+   - Clone this repository `git clone https://github.com/asiff00/On-Device-Speech-to-Speech-Conversational-AI.git`
    - Run `cd On-Device-Speech-to-Speech-Conversational-AI` and go to the project directory
    - Run `git lfs pull` from the project root directory to download the models and voices
    - Copy `.env.template` to `.env`

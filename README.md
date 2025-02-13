@@ -11,7 +11,7 @@ This is a real-time conversational system for two-way speech communication with 
 
 1. **Prerequisites:**
    - Install Python 3.8+ (tested with 3.12)
-   - Install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases/tag/1.52.0) (required for voice synthesis)
+   - Install [eSpeak NG](https://github.com/espeak-ng/espeak-ng/releases/tag/1.52.0) / `sudo apt install -y espeak-ng` for Linux (required for voice synthesis)
    - Install Ollama from https://ollama.ai/
 
 2. **Setup:**

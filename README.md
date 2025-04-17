@@ -88,6 +88,10 @@ We have fallback plans for cases when the LLM fails to start its response with f
 
 **In practice,** this approach can reduce perceived latency by up to 50-70%, depending on the length of the response and the speed of the language model. For example, in a typical conversation where responses average 15-20 words, our techniques can bring the initial response time down from 1.5-2 seconds to just `0.5-0.7` seconds, making the interaction feel much more natural and immediate.
 
+## Related Projects on TTS Development 
+Explore my other projects related to TTS development below:
+*   **Local Orpheus:** [Run Orpheus Locally](https://github.com/asiff00/Orpheus-TTS-Local)
+*   **Training TTS Models:** [Train TTS Models](https://github.com/asiff00/Training-TTS)
 
 ## Resources
 This project utilizes the following resources:

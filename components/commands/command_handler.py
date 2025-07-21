@@ -1,7 +1,7 @@
 import torch
 from datetime import datetime
 from pathlib import Path
-from .voice import quick_mix_voice
+from components.voice.voice_manager import quick_mix_voice
 
 
 def handle_commands(user_input, generator, speed, model_path=None):

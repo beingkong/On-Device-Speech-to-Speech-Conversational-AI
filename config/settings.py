@@ -22,9 +22,9 @@ from typing import Optional
 class Settings(BaseSettings):
     """Settings class to manage application configurations."""
 
-    BASE_DIR: Path = Path(__file__).parent.parent.parent
-    MODELS_DIR: Path = BASE_DIR / "data" / "models"
-    VOICES_DIR: Path = BASE_DIR / "data" / "voices"
+    BASE_DIR: Path = Path(__file__).parent.parent
+    MODELS_DIR: Path = BASE_DIR.joinpath("data", "models").resolve()
+    VOICES_DIR: Path = BASE_DIR.joinpath("data", "voices").resolve()
     OUTPUT_DIR: Path = BASE_DIR / "output"
     RECORDINGS_DIR: Path = BASE_DIR / "recordings"
 

@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 import logging
 from datetime import datetime
-from .audio_io import save_audio_file
+from components.audio.utils import save_audio_file
 
 logging.getLogger("phonemizer").setLevel(logging.ERROR)
 logging.getLogger("speechbrain.utils.quirks").setLevel(logging.ERROR)

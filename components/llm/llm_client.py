@@ -1,22 +1,8 @@
-import re
 import requests
 import json
 import time
-from src.utils.config import settings
-
-
-def filter_response(response: str) -> str:
-    """Removes markdown formatting and unicode characters from a string.
-
-    Args:
-        response (str): The string to filter.
-
-    Returns:
-        str: The filtered string.
-    """
-    response = re.sub(r"\*\*|__|~~|`", "", response)
-    response = re.sub(r"[\U00010000-\U0010ffff]", "", response, flags=re.UNICODE)
-    return response
+from config.settings import settings
+from components.text_processing.filter import filter_response
 
 
 def warmup_llm(session: requests.Session, llm_model: str, llm_url: str):

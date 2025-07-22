@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Assistant</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background-color: #1e1e1e;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            width: 90%;
+            max-width: 600px;
+        }
+        h1 {
+            color: #ffffff;
+        }
+        #recordButton {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+            margin-bottom: 20px;
+        }
+        #recordButton.recording {
+            background-color: #f44336;
+        }
+        #recordButton:hover {
+            transform: scale(1.05);
+        }
+        .status {
+            margin-top: 20px;
+            font-size: 16px;
+            height: 20px;
+        }
+        .conversation {
+            margin-top: 30px;
+            text-align: left;
+            max-height: 40vh;
+            overflow-y: auto;
+            padding-right: 15px;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 10px;
+        }
+        .user-message {
+            background-color: #333;
+            color: #fff;
+        }
+        .assistant-message {
+            background-color: #444;
+            color: #ddd;
+        }
+        .label {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice Assistant</h1>
+        <button id="startButton">Start Conversation</button>
+        <button id="stopButton" disabled>End Conversation</button>
+        <div id="status" class="status">Click "Start" to begin.</div>
+        <div id="conversation" class="conversation"></div>
+        <audio id="audioPlayer" style="display:none;"></audio>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

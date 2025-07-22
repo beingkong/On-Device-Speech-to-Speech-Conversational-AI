@@ -29,10 +29,11 @@ This is a real-time conversational system for two-way speech communication with 
    - Run: `ollama run qwen2.5:0.5b-instruct-q8_0` or any other model of your choice
 
 5. **Start Application:**
-   - Run: `python speech_to_speech.py`
-   - Wait for initialization (models loading)
-   - Start talking when you see "Voice Chat Bot Ready"
-   - Long press `Ctrl+C` to stop the application
+   - Run: `python run.py`
+   - Wait for initialization (models loading). You will see output in the console.
+   - Once you see "Press CTRL+C to quit", open your web browser and go to `http://127.0.0.1:5000`.
+   - Click the "Record" button and start speaking.
+   - Long press `Ctrl+C` in the terminal to stop the application.
 </details>
 
 

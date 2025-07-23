@@ -1,6 +1,7 @@
+import os
 import torch
 from transformers import pipeline, AutoProcessor, VoxtralForConditionalGeneration
-from components.voice.voice_manager import VoiceGenerator
+from boson_multimodal.model.higgs_audio.modeling_higgs_audio import HiggsAudioModel, HiggsAudioConfig
 from config.settings import settings
 
 class ModelServer:
@@ -27,7 +28,19 @@ class ModelServer:
         )
         print("STT model loaded.")
 
-        print("Loading TTS model...")
-        self.voice_generator = VoiceGenerator(settings.MODELS_DIR, settings.VOICES_DIR)
-        self.voice_generator.initialize(settings.TTS_MODEL, settings.VOICE_NAME)
-        print("TTS model loaded.")
+        print("Loading Higgs-Audio TTS model...")
+        from huggingface_hub import snapshot_download
+        model_dir = "data/tts_model"
+        model_repo = getattr(settings, "HIGGS_MODEL_REPO", None)
+        # 如果模型目录不存在或为空，则自动下载
+        if not os.path.exists(model_dir) or not os.listdir(model_dir):
+            if not model_repo:
+                raise RuntimeError("HIGGS_MODEL_REPO 环境变量未设置，无法自动下载模型！")
+            print(f"Model not found in {model_dir}, downloading from {model_repo} ...")
+            snapshot_download(repo_id=model_repo, local_dir=model_dir, local_dir_use_symlinks=False)
+            print("Download complete.")
+        # 加载配置和模型
+        higgs_config = HiggsAudioConfig.from_pretrained(model_dir)
+        self.tts_engine = HiggsAudioModel.from_pretrained(model_dir, config=higgs_config)
+        self.tts_engine.to(self.device)
+        print("Higgs-Audio TTS model loaded.")

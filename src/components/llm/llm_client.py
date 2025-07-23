@@ -2,7 +2,7 @@ import requests
 import json
 import time
 from config.settings import settings
-from components.text_processing.filter import filter_response
+
 
 
 def warmup_llm(session: requests.Session, llm_model: str, llm_url: str):
@@ -123,7 +123,7 @@ def parse_stream_chunk(chunk: bytes) -> dict:
                 ).get("content", "")
 
             if content:
-                return {"choices": [{"delta": {"content": filter_response(content)}}]}
+                return {"choices": [{"delta": {"content": content}}]}
         return None
 
     except Exception as e:

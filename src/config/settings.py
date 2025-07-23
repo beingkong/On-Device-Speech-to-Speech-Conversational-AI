@@ -20,6 +20,7 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
+    
     """Settings class to manage application configurations."""
 
     BASE_DIR: Path = Path(__file__).parent.parent.parent
@@ -31,11 +32,11 @@ class Settings(BaseSettings):
     ESPEAK_LIBRARY_PATH: str = r"C:\Program Files\eSpeak NG\libespeak-ng.dll"
     ESPEAK_PATH: str = r"C:\Program Files\eSpeak NG\espeak-ng.exe"
 
-    TTS_MODEL: str = Field(..., env="TTS_MODEL")
+    # 已废弃的模型路径字段，模型路径已在 model_server.py 中写死为 data/tts_model
     VOICE_NAME: str = Field(..., env="VOICE_NAME")
     SPEED: float = Field(default=1.0, env="SPEED")
     HUGGINGFACE_TOKEN: str = Field(..., env="HUGGINGFACE_TOKEN")
-
+    HIGGS_MODEL_REPO: str = Field(default=None, env="HIGGS_MODEL_REPO")
     LM_STUDIO_URL: str = Field(..., env="LM_STUDIO_URL")
     OLLAMA_URL: str = Field(..., env="OLLAMA_URL")
     DEFAULT_SYSTEM_PROMPT: str = Field(..., env="DEFAULT_SYSTEM_PROMPT")

@@ -115,3 +115,50 @@
 -   `run.py` 和 `src/app.py`: 旧的、分散的启动脚本，功能已统一到根目录的 `app.py`。
 
 这次精简，使得项目的最终代码库，完全聚焦于我们最终实现的、基于 `Voxtral-Mini` 和 `silero-vad` 的实时对话架构。
+
+# 9. TTS 模块升级：集成 Higgs-Audio (2025-07-23)
+
+在完成了核心的STT重构后，我们发现旧的TTS实现 (`KokoroTTS`) 已被移除，导致系统无法发出声音。为了完成端到端的语音对话流程，我们决定集成一个更先进的、现代化的文本到语音（TTS）模型：`boson-ai/higgs-audio`。
+
+## 1. 技术选型理由
+
+- **功能强大**: `Higgs-Audio` 是一个文本到音频的基础模型，支持高质量的语音生成、零样本声音克隆和富有表现力的韵律控制。
+- **技术互补**: 它与 `Voxtral-Mini` 形成了完美的互补。`Voxtral-Mini` 负责“听”（STT），而 `Higgs-Audio` 负责“说”（TTS），两者共同构成了一个完整的对话系统。
+- **易于集成**: `Higgs-Audio` 提供了简洁的 `HiggsAudioServeEngine` 接口，可以方便地加载并用于生成音频。
+
+## 2. 新增关键依赖项
+
+- **`boson-multimodal`**: 通过 `pip install git+https://github.com/boson-ai/higgs-audio.git` 来安装 `Higgs-Audio` 的核心库。
+
+## 3. 详细实施计划
+
+### 第一步：更新配置 (`config/settings.py`)
+
+1.  **移除旧配置**: 删除不再需要的 `TTS_MODEL` 环境变量。
+2.  **添加新配置**:
+    - `HIGGS_MODEL_PATH`: 用于指定 `Higgs-Audio` 模型文件的路径。
+    - `HIGGS_TOKENIZER_PATH`: 用于指定 `Higgs-Audio` 音频分词器的路径。
+
+### 第二步：重构模型加载服务 (`services/model_server.py`)
+
+1.  **移除 `VoiceGenerator`**: 彻底删除对旧 `VoiceGenerator` 的导入和实例化代码。
+2.  **加载 `Higgs-Audio`**:
+    - 导入 `HiggsAudioServeEngine`。
+    - 在 `ModelServer` 的初始化方法中，使用新的配置项来实例化 `HiggsAudioServeEngine`。
+    - 将加载好的引擎实例存储在 `self.tts_engine` 属性中，以便后续注入到 `ConversationManager`。
+
+### 第三步：重构对话管理器 (`services/conversation_manager.py`)
+
+1.  **更新依赖注入**: 修改 `ConversationManager` 的 `__init__` 方法，使其不再接收旧的 `voice_generator`，而是接收新的 `tts_engine` 实例。
+2.  **重写AI输出逻辑 (`handle_ai_output`)**:
+    - 彻底重写该方法，以适应 `Higgs-Audio` 的API。
+    - 实现一个文本缓冲区，用于将从LLM流式传来的单词或短语，聚合成完整的句子。
+    - 当一个完整的句子形成后，将其包装成 `Higgs-Audio` 所期望的 `ChatMLSample` 格式。
+    - 调用 `tts_engine.generate()` 方法来生成音频。
+    - 将返回的音频字节流直接通过 WebSocket 发送给前端。
+
+### 第四步：更新主应用 (`app.py`)
+
+1.  确保在创建 `ConversationManager` 实例时，将 `ModelServer` 中加载好的 `tts_engine` 正确地传递给它。
+
+这次升级，将使我们的项目拥有一个真正端到端的、基于最新AI模型的实时语音对话能力。

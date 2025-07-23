@@ -18,3 +18,5 @@ python-dotenv
 requests
 numpy
 soundfile
+# Higgs-Audio TTS
+boson-multimodal @ git+https://github.com/boson-ai/higgs-audio.git

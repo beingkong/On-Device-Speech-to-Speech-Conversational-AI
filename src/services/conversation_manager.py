@@ -6,11 +6,13 @@ import torch
 import json
 from config.settings import settings
 from components.llm.llm_client import get_ai_response, parse_stream_chunk
-from components.voice.voice_manager import VoiceGenerator
+ # ChatMLSample, Message 已移除，直接用 dict 结构传递文本
 from transformers import AutoProcessor, VoxtralForConditionalGeneration
+import soundfile as sf
+import tempfile
 
 class ConversationManager:
-    def __init__(self, vad_model, stt_processor, stt_model, voice_generator):
+    def __init__(self, vad_model, stt_processor, stt_model, tts_engine):
         self.llm_text_queue = queue.Queue()
         self.ai_is_speaking = threading.Event()
         self.interruption_event = threading.Event()
@@ -21,7 +23,7 @@ class ConversationManager:
         self.vad_model = vad_model
         self.stt_processor = stt_processor
         self.stt_model = stt_model
-        self.voice_generator = voice_generator
+        self.tts_engine = tts_engine
 
     def handle_user_input(self, ws):
         audio_buffer = []
@@ -65,21 +67,28 @@ class ConversationManager:
                                     
                                     ws.send(json.dumps({"status": "transcribing"}))
                                     
-                                    # Manual STT processing, step-by-step
-                                    audio_float32 = full_audio_np.astype(np.float32) / 32768.0
-                                    
-                                    # 1. Feature Extraction
-                                    input_features = self.stt_processor.feature_extractor(
-                                        [audio_float32], 
-                                        sampling_rate=16000, 
-                                        return_tensors="pt"
-                                    ).input_features.to(self.device, dtype=torch.bfloat16)
+                                    # Save audio to a temporary file to ensure processor compatibility.
+                                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp_file:
+                                        # Write the int16 numpy array directly to a WAV file.
+                                        sf.write(tmp_file.name, full_audio_np, 16000)
 
-                                    # 2. Model Inference - Direct model call for speech recognition
-                                    predicted_ids = self.stt_model(input_features).logits
+                                        # 1. Create the conversation input using the file path.
+                                        conversation = [
+                                            {"role": "user", "content": [
+                                                {"type": "audio", "path": tmp_file.name}
+                                            ]}
+                                        ]
                                     
-                                    # 3. Decoding
-                                    transcribed_text = self.stt_processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+                                        # 2. Apply the template to get model-ready inputs.
+                                        inputs = self.stt_processor.apply_chat_template(
+                                            conversation
+                                        ).to(self.device, dtype=torch.bfloat16)
+
+                                        # 3. Generate the token IDs.
+                                        predicted_ids = self.stt_model.generate(**inputs)
+                                        
+                                        # 4. Decode the result.
+                                        transcribed_text = self.stt_processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
                                     
                                     if transcribed_text and transcribed_text.strip():
                                         print(f"User: {transcribed_text}")
@@ -133,29 +142,31 @@ class ConversationManager:
             self.llm_text_queue.put(None)
 
     def handle_ai_output(self, ws):
+        sentence_buffer = ""
         while ws.connected:
             try:
                 text_chunk = self.llm_text_queue.get(timeout=0.1)
-                if text_chunk is None:
+                if text_chunk is None:  # End of stream signal
+                    if sentence_buffer:
+                        # If there's a leftover sentence, process it
+                        self._generate_and_send_audio(sentence_buffer, ws)
+                        sentence_buffer = ""
                     self.ai_is_speaking.clear()
                     self.interruption_event.clear()
                     continue
 
-                cleaned_chunk = text_chunk.strip()
-                if not cleaned_chunk: continue
+                sentence_buffer += text_chunk
 
-                if not self.ai_is_speaking.is_set(): self.ai_is_speaking.set()
-
-                audio_chunk, _ = self.voice_generator.generate(cleaned_chunk, speed=settings.SPEED)
-                
-                if audio_chunk is not None and audio_chunk.size > 0:
-                    if self.interruption_event.is_set():
-                        while not self.llm_text_queue.empty(): self.llm_text_queue.get()
-                        self.ai_is_speaking.clear()
-                        self.interruption_event.clear()
-                        continue
+                # Process buffer if it contains sentence-ending punctuation
+                if any(p in sentence_buffer for p in ".!?"):
+                    # Split buffer into sentences
+                    sentences = re.split(r'(?<=[.!?])\s*', sentence_buffer)
+                    # The last part might be an incomplete sentence, so keep it in the buffer
+                    sentence_buffer = sentences.pop() if sentences[-1] and not sentences[-1].endswith(('.','!','?')) else ""
                     
-                    ws.send(audio_chunk.tobytes())
+                    for sentence in sentences:
+                        if sentence.strip():
+                            self._generate_and_send_audio(sentence.strip(), ws)
 
             except queue.Empty:
                 continue
@@ -163,3 +174,31 @@ class ConversationManager:
                 print(f"Error in AI output thread: {e}")
                 self.ai_is_speaking.clear()
                 self.interruption_event.clear()
+
+    def _generate_and_send_audio(self, text, ws):
+        if self.interruption_event.is_set():
+            # Clear the queue if interrupted
+            while not self.llm_text_queue.empty(): self.llm_text_queue.get()
+            self.ai_is_speaking.clear()
+            self.interruption_event.clear()
+            return
+            
+        if not self.ai_is_speaking.is_set(): self.ai_is_speaking.set()
+
+        print(f"Generating audio for: '{text}'")
+
+        # Prepare input for Higgs-Audio
+        # 直接用 dict 结构传递文本给 TTS
+        chat_ml_sample = {"role": "assistant", "content": text}
+
+        # Generate audio
+        audio_output = self.tts_engine.generate(chat_ml_sample)
+        
+        # Higgs-Audio output is a dict, we need the audio bytes
+        # Assuming the audio is in 'audio' key and is a numpy array
+        if audio_output and 'audio' in audio_output and audio_output['audio'] is not None:
+             # Convert numpy array to bytes
+            audio_bytes = audio_output['audio'].tobytes()
+            ws.send(audio_bytes)
+        else:
+            print(f"Warning: Higgs-Audio did not return audio for text: '{text}'")

@@ -3,9 +3,8 @@ import numpy as np
 from pathlib import Path
 import json
 import re
-from components.tts.models.models import build_model
-from components.tts.kokoro_tts import generate
 
+# Removed imports for build_model and kokoro_tts as model loading is now external.
 
 def get_device():
     """Gets the device to use for torch operations.
@@ -244,7 +243,7 @@ class VoiceGenerator:
         self.voices_dir = voices_dir
         self._initialized = False
 
-    def initialize(self, model_path, voice_name):
+    def initialize(self, voice_name):
         """
         Initializes the model and voice pack for audio generation.
 
@@ -258,13 +257,7 @@ class VoiceGenerator:
         Raises:
             FileNotFoundError: If the model or voice pack file is not found.
         """
-        model_file = self.models_dir / model_path
-        if not model_file.exists():
-            raise FileNotFoundError(
-                f"Model file not found at {model_file}. Please place the model file in the 'models' directory."
-            )
-
-        self.model = build_model(str(model_file), self.device)
+        # Model loading is now handled by ModelServer, so we only load the voice pack here.
         self.voice_name = voice_name
 
         voice_path = self.voices_dir / f"{voice_name}.pt"
@@ -295,12 +288,10 @@ class VoiceGenerator:
         Returns:
             bool: True if the model and voice pack are loaded, False otherwise.
         """
-        return (
-            self._initialized and self.model is not None and self.voicepack is not None
-        )
+        return self._initialized and self.voicepack is not None
 
     def generate(
-        self, text, lang=None, speed=1.0, pause_duration=4000, short_text_limit=200, return_chunks=False,
+        self, tts_model, text, lang=None, speed=1.0, pause_duration=4000, short_text_limit=200, return_chunks=False,
     ):
         """
         Generates speech from the given text.
@@ -322,8 +313,8 @@ class VoiceGenerator:
             RuntimeError: If the model is not initialized.
             ValueError: If there is an error during audio generation.
         """
-        if not self.is_initialized():
-            raise RuntimeError("Model not initialized. Call initialize() first.")
+        if not self.is_initialized() or tts_model is None:
+            raise RuntimeError("Model not initialized. Call initialize() first and pass a valid model to generate().")
 
         if lang is None:
             lang = self.voice_name[0]
@@ -335,8 +326,8 @@ class VoiceGenerator:
         try:
             if len(text) < short_text_limit:
                 try:
-                    audio, phonemes = generate(
-                        self.model, text, self.voicepack, lang=lang, speed=speed
+                    audio, phonemes = tts_model.generate(
+                        text, self.voicepack, lang=lang, speed=speed
                     )
                     if audio is None or len(audio) == 0:
                         raise ValueError(f"Failed to generate audio for text: {text}")
@@ -364,8 +355,8 @@ class VoiceGenerator:
                     if audio_segments and not return_chunks:
                         audio_segments.append(np.zeros(pause_duration))
 
-                    audio, phonemes = generate(
-                        self.model, sentence, self.voicepack, lang=lang, speed=speed
+                    audio, phonemes = tts_model.generate(
+                        sentence, self.voicepack, lang=lang, speed=speed
                     )
                     if audio is not None and len(audio) > 0:
                         audio_segments.append(audio)

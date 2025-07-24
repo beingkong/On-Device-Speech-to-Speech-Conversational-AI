@@ -1,2 +1,10 @@
-
 Miniconda3-latest-Linux-x86_64.sh
+
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+
+# Downloaded TTS model
+/data/tts_model/

@@ -9,6 +9,7 @@ transformers @ git+https://github.com/huggingface/transformers.git
 sentencepiece
 mistral-common
 accelerate
+librosa
 
 # TTS
 phonemizer
@@ -18,5 +19,6 @@ python-dotenv
 requests
 numpy
 soundfile
+pydantic-settings
 # Higgs-Audio TTS
 boson-multimodal @ git+https://github.com/boson-ai/higgs-audio.git

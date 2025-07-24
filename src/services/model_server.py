@@ -2,7 +2,7 @@ import os
 import torch
 from transformers import pipeline, AutoProcessor, VoxtralForConditionalGeneration
 from boson_multimodal.model.higgs_audio.modeling_higgs_audio import HiggsAudioModel, HiggsAudioConfig
-from config.settings import settings
+from src.config.settings import settings
 
 class ModelServer:
     """

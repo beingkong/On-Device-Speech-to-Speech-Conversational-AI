@@ -1,11 +1,12 @@
 import threading
 import queue
 import time
+import re
 import numpy as np
 import torch
 import json
-from config.settings import settings
-from components.llm.llm_client import get_ai_response, parse_stream_chunk
+from src.config.settings import settings
+from src.components.llm.llm_client import get_ai_response, parse_stream_chunk
  # ChatMLSample, Message 已移除，直接用 dict 结构传递文本
 from transformers import AutoProcessor, VoxtralForConditionalGeneration
 import soundfile as sf
@@ -17,6 +18,7 @@ class ConversationManager:
         self.ai_is_speaking = threading.Event()
         self.interruption_event = threading.Event()
         self.messages = [{"role": "system", "content": settings.DEFAULT_SYSTEM_PROMPT}]
+        self.messages_lock = threading.Lock()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # Receive pre-loaded models
@@ -24,6 +26,7 @@ class ConversationManager:
         self.stt_processor = stt_processor
         self.stt_model = stt_model
         self.tts_engine = tts_engine
+        self.llm_lock = threading.Lock()
 
     def handle_user_input(self, ws):
         audio_buffer = []
@@ -96,13 +99,6 @@ class ConversationManager:
                                         
                                         llm_thread = threading.Thread(target=self.get_llm_response)
                                         llm_thread.start()
-                                    
-                                    if transcribed_text and transcribed_text.strip():
-                                        print(f"User: {transcribed_text}")
-                                        self.messages.append({"role": "user", "content": transcribed_text})
-                                        
-                                        llm_thread = threading.Thread(target=self.get_llm_response)
-                                        llm_thread.start()
 
             except Exception as e:
                 if not isinstance(e, TimeoutError):
@@ -111,6 +107,10 @@ class ConversationManager:
 
 
     def get_llm_response(self):
+        if not self.llm_lock.acquire(blocking=False):
+            print("LLM response generation is already in progress.")
+            return
+
         import requests
         session = requests.Session()
         
@@ -140,6 +140,8 @@ class ConversationManager:
         except Exception as e:
             print(f"Error getting LLM response: {e}")
             self.llm_text_queue.put(None)
+        finally:
+            self.llm_lock.release()
 
     def handle_ai_output(self, ws):
         sentence_buffer = ""
@@ -158,14 +160,19 @@ class ConversationManager:
                 sentence_buffer += text_chunk
 
                 # Process buffer if it contains sentence-ending punctuation
-                if any(p in sentence_buffer for p in ".!?"):
-                    # Split buffer into sentences
-                    sentences = re.split(r'(?<=[.!?])\s*', sentence_buffer)
-                    # The last part might be an incomplete sentence, so keep it in the buffer
-                    sentence_buffer = sentences.pop() if sentences[-1] and not sentences[-1].endswith(('.','!','?')) else ""
-                    
+                last_punc_idx = -1
+                for p in ".!?":
+                    idx = sentence_buffer.rfind(p)
+                    if idx > last_punc_idx:
+                        last_punc_idx = idx
+                
+                if last_punc_idx != -1:
+                    text_to_process = sentence_buffer[:last_punc_idx+1]
+                    sentence_buffer = sentence_buffer[last_punc_idx+1:]
+
+                    sentences = re.split(r'(?<=[.!?])\s*', text_to_process)
                     for sentence in sentences:
-                        if sentence.strip():
+                        if sentence and sentence.strip():
                             self._generate_and_send_audio(sentence.strip(), ws)
 
             except queue.Empty:
@@ -188,17 +195,19 @@ class ConversationManager:
         print(f"Generating audio for: '{text}'")
 
         # Prepare input for Higgs-Audio
-        # 直接用 dict 结构传递文本给 TTS
         chat_ml_sample = {"role": "assistant", "content": text}
 
         # Generate audio
         audio_output = self.tts_engine.generate(chat_ml_sample)
         
-        # Higgs-Audio output is a dict, we need the audio bytes
-        # Assuming the audio is in 'audio' key and is a numpy array
-        if audio_output and 'audio' in audio_output and audio_output['audio'] is not None:
-             # Convert numpy array to bytes
-            audio_bytes = audio_output['audio'].tobytes()
+        # Correctly extract the audio from the nested dictionary
+        if (audio_output and isinstance(audio_output, dict) and 
+            'audio' in audio_output and isinstance(audio_output['audio'], dict) and 
+            'audio' in audio_output['audio'] and audio_output['audio']['audio'] is not None and
+            hasattr(audio_output['audio']['audio'], 'tobytes')):
+            
+            audio_bytes = audio_output['audio']['audio'].tobytes()
             ws.send(audio_bytes)
         else:
-            print(f"Warning: Higgs-Audio did not return audio for text: '{text}'")
+            print(f"Warning: Higgs-Audio did not return audio in the expected format for text: '{text}'")
+            print(f"DEBUG: Unexpected audio_output structure: {audio_output}")

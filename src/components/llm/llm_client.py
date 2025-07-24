@@ -1,7 +1,7 @@
 import requests
 import json
 import time
-from config.settings import settings
+from src.config.settings import settings
 
 
 
